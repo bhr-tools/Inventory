@@ -1,11 +1,10 @@
-// Unit tests for the browser-side search, suggestions and Quick Add parser.
+// Unit tests for the browser-side search and look-alike detection.
 // Run: node --test tests/js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalize, editDistance, words } from '../../web/js/text.js';
 import { parseSlot, canonicalSlot, compareSlots } from '../../web/js/slots.js';
 import { parseQuery, indexItem, search, similarItems, highlight, hasTag } from '../../web/js/search.js';
-import { parseQuickAdd, tokenAt, warrantyDate } from '../../web/js/quickadd.js';
 
 const item = (name, extra = {}) => ({
   id: name, name, description: '', notes: '', quantity: 0, to_buy: false, slots: [], tags: [], aliases: [], ...extra,
@@ -108,33 +107,6 @@ test('highlight', () => {
   assert.equal(fz.chars.filter((_, i) => fz.marks[i]).join(''), 'Scrtch');
 });
 
-test('quick add', () => {
-  const p = parseQuickAdd('ESP32-WROOM a-12 #Electronic/MCU ~esp ~"wifi board" x25 B-3');
-  assert.equal(p.name, 'ESP32-WROOM');
-  assert.deepEqual(p.slots, ['A-12', 'B-3']);
-  assert.deepEqual(p.tags, ['electronic/mcu']);
-  assert.deepEqual(p.aliases, ['esp', 'wifi board']);
-  assert.equal(p.quantity, 25);
-  assert.equal(parseQuickAdd('Vis M3x10 x').quantity, null);   // "M3x10" and a lone "x" are names
-  assert.equal(parseQuickAdd('Vis M3x10 x').name, 'Vis M3x10 x');
-
-  // Without a dash, a slot needs a known box: "M3" and "LM317" stay names.
-  assert.equal(parseQuickAdd('Vis M3 LM317 C3').name, 'Vis M3 LM317 C3');
-  const known = parseQuickAdd('Vis M3 C3', { knownBoxes: new Set(['C']) });
-  assert.equal(known.name, 'Vis M3');
-  assert.deepEqual(known.slots, ['C-3']);
-  assert.deepEqual(parseQuickAdd('Fer @a7').slots, ['A-7']);
-});
-
-test('completion context', () => {
-  assert.deepEqual(tokenAt('ESP #ele', 8), { type: 'tag', start: 4, end: 8, value: 'ele' });
-  assert.equal(tokenAt('ESP a-', 6).type, 'slot');
-  assert.equal(tokenAt('ESP a-1', 7).value, 'A-1');
-  assert.equal(tokenAt('ESP wro', 7).type, 'name');
-  assert.equal(tokenAt('ESP x12', 7).type, 'quantity');
-  assert.equal(tokenAt('ESP ~wi', 7).type, 'alias');
-});
-
 test('tools: brand, reference, serial, files and filters', () => {
   const tools = [
     item('Perceuse visseuse', { kind: 'tool', brand: 'Makita', model: 'DHP482', serial: 'SN 4821-77', warranty_until: '2027-03-31',
@@ -157,21 +129,4 @@ test('tools: brand, reference, serial, files and filters', () => {
   assert.deepEqual(find('is:archived'), ['Multimètre']);
   assert.deepEqual(find('is:warranty'), ['Perceuse visseuse']);    // Fluke's ended in 2024
   assert.deepEqual(find('has:file'), ['Perceuse visseuse']);
-});
-
-test('quick add for tools', () => {
-  const p = parseQuickAdd('Perceuse visseuse brand:Makita ref:DHP482 sn:"A1 2" until:2027-03 #power A-12 x3', { kind: 'tool' });
-  assert.equal(p.name, 'Perceuse visseuse A-12 x3');              // no slot or count for tools
-  assert.equal(p.brand, 'Makita');
-  assert.equal(p.model, 'DHP482');
-  assert.equal(p.serial, 'A1 2');
-  assert.equal(p.warranty, '2027-03-31');
-  assert.deepEqual(p.tags, ['power']);
-  assert.equal(parseQuickAdd('Saw until:2027-13', { kind: 'tool' }).warrantyError, true);
-  assert.equal(tokenAt('Saw sn:12', 9, { kind: 'tool' }).type, 'serial');
-  assert.equal(warrantyDate('2028'), '2028-12-31');
-  assert.equal(warrantyDate('2028-02'), '2028-02-29');
-  assert.equal(warrantyDate('2027-02-30'), null);
-  // Parts ignore tool fields: "brand:x" stays in the name.
-  assert.equal(parseQuickAdd('Bolt brand:x').name, 'Bolt brand:x');
 });

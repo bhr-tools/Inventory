@@ -15,13 +15,13 @@ const SECTIONS = [
     [['gg', 'G'], 'First / last'],
     [['Enter', 'e'], 'Edit the item'],
     [['Space'], 'Select (then act on the selection)'],
-    [['a'], 'Add parts'],
+    [['a'], 'Add an item (the same form as edit)'],
     [['+', '-'], 'One more / one less'],
     [['x'], 'Type the quantity'],
     [['f'], 'Attach files (or drop them on the details)'],
     [['o'], 'Open the first file'],
-    [['m'], 'Move to a slot'],
-    [['s'], 'Swap two slots'],
+    [['m'], 'Move, on the map of the box'],
+    [['s'], 'Swap: tap a used slot on the map'],
     [['t'], 'Add or remove tags'],
     [['A'], 'Archive a tool (broken, lost, sold), or restore it'],
     [['d'], 'Delete'],
@@ -56,14 +56,6 @@ const SYNTAX = [
   ['is:warranty  has:file', 'still under warranty; with attachments'],
 ];
 
-const ADD = [
-  ['A-12', 'slot (several allowed); A12 works once box A exists'],
-  ['#tag', 'tag, #parent/child for a sub-tag'],
-  ['~alias  ~"two words"', 'another name to find it by'],
-  ['x5', 'quantity (default 0)'],
-  ['brand:  ref:  sn:', 'tools: brand, reference, serial (quote spaces: sn:"A1 2")'],
-  ['until:2027-03', 'tools: warranty end (2027, 2027-03 or 2027-03-31)'],
-];
 
 export function openHelp() {
   const keys = (list) => h('span', { class: 'help-keys' }, list.map((k) => h('kbd', null, k)));
@@ -78,8 +70,6 @@ export function openHelp() {
         rows.map(([k, text]) => h('div', { class: 'help-row' }, h('span', null, text), keys(k)))))),
       h('h3', null, 'Search syntax'),
       h('div', { class: 'help-syntax' }, table(SYNTAX)),
-      h('h3', null, 'Add syntax'),
-      h('div', { class: 'help-syntax' }, table(ADD)),
     ],
   });
 }

@@ -16,8 +16,8 @@ ruled tables grouped by box, IBM Plex (shipped with the app, no font service).
   to go back).
 - **Forgiving:** prefixes, typos (`condesateur`), accents, scattered letters
   (`scrtch`), and aliases: give a part the names you might remember it by.
-- **No duplicates:** while you type a new part, look-alike items are listed;
-  pick one to add the new slots and tags to it instead of creating a twin.
+- **No duplicates:** while you type a new item's name, look-alike items are
+  listed; open one to add to it instead of creating a twin.
 - **Hierarchical tags:** `#electronic/mcu` is found by `#electronic` and `#mcu`.
 - **Quantities:** every item has a count (0 by default): `+` / `-` on an item,
   or `x` to type it.
@@ -56,38 +56,25 @@ ruled tables grouped by box, IBM Plex (shipped with the app, no font service).
 The query is kept in the URL (`/?q=A-12`), so a slot can be bookmarked or put
 in a QR code on the box.
 
-## Adding parts
+## Adding and editing
 
-On a phone, `+ Add` opens a short form: the name lists look-alike items as you
-type, the slot is picked among the free ones of a box (or on its map), and the
-count is set with − / +. On a computer, press `a` and type one line:
+Adding (`a`, or `+ Add` on a phone) and editing (`e`, or `Edit` on an item's
+page) open the same form, on a computer and on a phone:
 
-```
-ESP32-WROOM B-2 #electronic/mcu ~esp ~"wifi board" x5
-```
+- **Name:** look-alike items are listed as you type (`ESP32 clone` →
+  ESP32-WROOM), so a typo does not make a second copy; open one to add to it.
+  A name that already exists, ignoring case and accents, cannot be added again.
+- **Slot:** pick a box, then a slot on its map (free slots are dashed). Tick
+  “several slots” to keep a part in more than one. Slots are never typed:
+  boxes and their sizes are created in **Boxes** (`b`, or the ⋯ menu), and a
+  form only offers boxes that exist.
+- **Quantity** with − / +, **tags** with completion from the existing ones,
+  and, folded below, other names, a description and notes.
+- **Tools** take a brand, a reference, a serial number and a warranty end
+  instead of a slot and a count, and can be archived from the same form.
 
-`B-2` is a slot (several allowed), `#tag` a tag, `~alias` another name (quoted
-for spaces), `x5` the quantity (0 when left out). Everything else is the name. Under the field, a
-guide shows what was understood for each field and, for the ones not filled
-yet, their syntax with an example; the field being typed is highlighted. A
-slot needs its dash (`A-12`) unless its box already exists, so names like
-`M3 screw` or `LM317` stay names.
-
-Typing `A-` lists the slots of box A, free ones first; `#` lists existing tags.
-`Tab` completes. Under them, existing items that look like the name are listed:
-`↓` then `Enter` adds the new slots, tags and aliases to that item (and keeps
-the typed name as an alias); a quantity is added to its count. A name identical to an existing one, ignoring case
-and accents, always adds to it.
-
-For a tool (Quick Add opened from the tools tab):
-
-```
-Drill brand:Makita ref:DHP482 sn:"A1 2" until:2027-03 #power
-```
-
-`until:` is the warranty end: `2027`, `2027-03` or `2027-03-31` (the last day
-of the year or month when not given). After adding a tool, its details open,
-ready for the invoice.
+Moving (`m`) and swapping (`s`) use the same box map: tap a free slot to move
+there, a used one to swap the two slots.
 
 ## Keyboard shortcuts
 
@@ -101,13 +88,13 @@ Press `?` in the app for the cheatsheet.
 | `j` / `k`, `gg` / `G` | Next / previous, first / last |
 | `Enter` or `e` | Edit the item |
 | `Space` | Select (actions then apply to the selection) |
-| `a` | Add parts |
+| `a` | Add an item |
 | `+` / `-` | One more / one less (at 0, it goes to the shopping list) |
 | `x` | Type the quantity |
 | `1` / `2` / `3` (`&` / `é` / `"` on AZERTY) | Parts / tools / shopping |
 | `f` / `o` | Attach files / open the first file |
-| `m` | Move to a slot |
-| `s` | Swap two slots |
+| `m` | Move, on the map of the box |
+| `s` | Swap with another slot, on the map |
 | `t` | Add tags, or remove them with `-tag` |
 | `A` | Archive a tool, or restore it |
 | `d` / `u` | Delete / undo |
@@ -160,6 +147,6 @@ same name.
 
 ```sh
 go test ./...                    # store, API, routes
-node --test tests/js/*.test.mjs  # search, suggestions, Quick Add parser
+node --test tests/js/*.test.mjs  # search and look-alikes
 tests/e2e/run.sh                 # Chromium, desktop and phone (screenshots in tests/e2e/out)
 ```

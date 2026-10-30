@@ -8,14 +8,12 @@ import { parseQuery, indexItem, search, highlight } from './search.js';
 import { parseSlot, slotName, compareSlots } from './slots.js';
 import { slotSummary } from './suggest.js';
 import { initKeys } from './keys.js';
-import { openQuickAdd } from './views/add.js';
-import { openEditor } from './views/editor.js';
-import { pickSlot, openSwap, openTagDialog, openQuantityDialog } from './views/dialogs.js';
+import { openSwap, openTagDialog, openQuantityDialog } from './views/dialogs.js';
 import { openGrid } from './views/grid.js';
 import { openTags } from './views/tags.js';
 import { openHelp } from './views/help.js';
 import { filesSection, uploadFiles } from './views/files.js';
-import { openAddForm } from './views/addform.js';
+import { openItemForm } from './views/itemform.js';
 import { openSlotMap } from './views/slotmap.js';
 
 const $ = (id) => document.getElementById(id);
@@ -60,8 +58,8 @@ class App {
       this.setQuery('');
       this.search.focus();
     });
-    $('add-button').addEventListener('click', () => this.quickAdd());
-    $('tab-add').addEventListener('click', () => this.quickAdd());
+    $('add-button').addEventListener('click', () => this.add());
+    $('tab-add').addEventListener('click', () => this.add());
     $('more-button').append(icon('more'));
     $('more-button').addEventListener('click', (e) => this.openMoreMenu(e.currentTarget));
     $('status-help').addEventListener('click', () => openHelp());
@@ -273,7 +271,7 @@ class App {
       list.append(h('div', { class: 'slot-banner' },
         h('span', { class: 'slot' }, slot),
         h('span', null, count ? `${count} item${count === 1 ? '' : 's'}` : 'empty'),
-        count ? null : h('button', { type: 'button', class: 'button', onclick: () => this.quickAdd(`${slot} `) }, h('kbd', null, 'a'), 'add here')));
+        count ? null : h('button', { type: 'button', class: 'button', onclick: () => this.add({ slot }) }, h('kbd', null, 'a'), 'add here')));
     }
     if (!this.rows.length && this.view === 'shopping') {
       list.append(h('div', { class: 'empty-state' }, this.query
@@ -300,7 +298,7 @@ class App {
       else text = `No ${tools ? 'tool' : 'part'} yet. Add one with + Add.`;
       list.append(h('div', { class: 'empty-state' }, text,
         this.query.trim() && !this.slotBanner && !(tools && this.archived)
-          ? [' ', h('button', { type: 'button', class: 'link-button', onclick: () => this.quickAdd(this.query.trim()) }, `Add “${this.query.trim()}”`)]
+          ? [' ', h('button', { type: 'button', class: 'link-button', onclick: () => this.add({ name: this.query.trim() }) }, `Add “${this.query.trim()}”`)]
           : null));
       this.archivedNote(list);
       return;
@@ -354,7 +352,7 @@ class App {
       if (isMobile()) this.openPreviewSheet();
     };
     if (row.kind === 'empty') {
-      return h('div', { class: ['row', 'row-empty', i === this.cursor && 'cursor'], onclick, ondblclick: () => this.quickAdd(`${row.slot} `) },
+      return h('div', { class: ['row', 'row-empty', i === this.cursor && 'cursor'], onclick, ondblclick: () => this.add({ slot: row.slot }) },
         h('span', { class: 'row-mark' }),
         h('span', { class: 'row-slot' }, row.slot),
         h('span', { class: 'row-name' }, '(empty)'),
@@ -419,7 +417,7 @@ class App {
       return h('div', { class: 'preview-body' },
         h('div', { class: 'kicker' }, h('span', null, 'Slot'), h('span', { class: 'state' }, '○ free')),
         h('h2', { class: 'preview-title' }, row.slot),
-        h('div', { class: 'preview-actions' }, action('a', 'add here', () => this.quickAdd(`${row.slot} `), 'primary')),
+        h('div', { class: 'preview-actions' }, action('a', 'add here', () => this.add({ slot: row.slot }), 'primary')),
         this.neighbours(row.slot));
     }
     const it = row.item;
@@ -600,7 +598,6 @@ class App {
     let toBuy = 0;
     let tools = 0;
     let archived = 0;
-    let latest = '';
     for (const it of this.items) {
       if (itemKind(it) === 'tool') {
         if (isArchived(it)) archived++;
@@ -609,16 +606,14 @@ class App {
         parts++;
         if (it.to_buy) toBuy++;
       }
-      if (it.updated_at > latest) latest = it.updated_at;
     }
     const title = { parts: 'Parts', tools: this.archived ? 'Archive' : 'Tools', shopping: 'To buy' }[this.view];
-    const rev = latest ? ` · rev ${latest.slice(0, 10)}` : '';
     $('view-title').textContent = title;
     $('meta-title').textContent = `Inventory · ${title}`;
     $('meta-info').textContent = {
-      parts: `${parts} part${parts === 1 ? '' : 's'} · ${this.boxes.length} box${this.boxes.length === 1 ? '' : 'es'}${rev}`,
-      tools: `${tools} in use · ${archived} archived${rev}`,
-      shopping: `${toBuy} to buy${rev}`,
+      parts: `${parts} part${parts === 1 ? '' : 's'} · ${this.boxes.length} box${this.boxes.length === 1 ? '' : 'es'}`,
+      tools: `${tools} in use · ${archived} archived`,
+      shopping: `${toBuy} to buy`,
     }[this.view];
     const pool = { parts, tools: this.archived ? archived : tools, shopping: toBuy }[this.view];
     $('result-count').textContent = `${total}/${pool}`;
@@ -740,26 +735,23 @@ class App {
     return () => api.items.restore(copies);
   }
 
-  quickAdd(prefill = '') {
+  /** The item form, for a new item: in a slot, or with a name, when given. */
+  add({ slot = '', name = '' } = {}) {
     const row = this.cursorRow();
-    if (!prefill && row?.kind === 'empty') prefill = `${row.slot} `;
-    if (!prefill && this.slotBanner && !this.slotBanner.count) prefill = `${this.slotBanner.slot} `;
-    const kind = this.view === 'tools' ? 'tool' : 'part';
-    // Phones get a form; the Quick Add line is made for a keyboard.
-    if (isMobile()) openAddForm(this, { prefill, kind });
-    else openQuickAdd(this, { prefill, kind });
+    if (!slot && !name && row?.kind === 'empty') slot = row.slot;
+    if (!slot && !name && this.slotBanner && !this.slotBanner.count) slot = this.slotBanner.slot;
+    openItemForm(this, { kind: this.view === 'tools' ? 'tool' : 'part', slot, name });
   }
 
   edit(item = this.cursorItem()) {
-    if (item) openEditor(this, item);
+    if (item) openItemForm(this, { item });
   }
 
   async moveTargets(items = this.targets()) {
     if (!items.length) return;
-    // Phones pick the slot on a map of the box.
-    if (isMobile() && items.length === 1) return openSlotMap(this, { item: items[0] });
-    const title = items.length === 1 ? `Move “${items[0].name}” to…` : `Move ${items.length} items to…`;
-    const slot = await pickSlot(this, { title, okText: 'Move' });
+    // Slots are picked on the map of a box.
+    if (items.length === 1) return openSlotMap(this, { item: items[0] });
+    const slot = await openSlotMap(this, { items });
     if (slot) await this.moveTo(items, slot);
   }
 
@@ -783,7 +775,7 @@ class App {
 
   async swap(from = this.cursorItem()?.slots[0] || (this.cursorRow()?.kind === 'empty' ? this.cursorRow().slot : '')) {
     const item = this.sheet?.row.item || this.cursorItem();
-    if (isMobile() && item?.slots[0] === from) return openSlotMap(this, { item });
+    if (item?.slots[0] === from) return openSlotMap(this, { item });
     const pair = await openSwap(this, from || '');
     if (pair) await this.swapSlots(pair[0], pair[1]);
   }
@@ -964,10 +956,10 @@ class App {
     ]);
   }
 
-  openGrid(boxId) {
+  openGrid(boxId, options) {
     const row = this.cursorRow();
     const slot = row?.kind === 'empty' ? row.slot : row?.item?.slots[0] || this.slotBanner?.slot;
-    openGrid(this, boxId || (slot && parseSlot(slot).box), slot);
+    return openGrid(this, boxId || (slot && parseSlot(slot).box), slot, options);
   }
 
   async exportCSV() {

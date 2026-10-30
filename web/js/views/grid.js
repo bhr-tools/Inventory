@@ -7,7 +7,8 @@ import { openModal, promptDialog, toast } from '../ui/overlay.js';
 import { parseSlot, slotName, isBoxId } from '../slots.js';
 import { api } from '../api.js';
 
-export function openGrid(app, boxId, cursorSlot) {
+/** onClose: called once the view closes (the item form redraws its boxes). */
+export function openGrid(app, boxId, cursorSlot, { onClose } = {}) {
   let box = boxId && app.boxes.some((b) => b.id === boxId) ? boxId : app.boxes[0]?.id;
   let cursor = cursorSlot && parseSlot(cursorSlot)?.box === box ? parseSlot(cursorSlot).number : 1;
   let marked = null; // slot number waiting for its swap partner
@@ -75,7 +76,7 @@ export function openGrid(app, boxId, cursorSlot) {
     const button = (key, label, run, className) => h('button', { type: 'button', class: ['button', className], onclick: run }, h('kbd', null, key), label);
     actions.replaceChildren(
       button('⏎', `open ${here}`, () => open(cursor)),
-      button('a', 'add here', () => { modal.close(); app.quickAdd(`${here} `); }),
+      button('a', 'add here', () => { modal.close(); app.add({ slot: here }); }),
       marked
         ? button('esc', 'cancel swap', () => { marked = null; render(); })
         : button('s', `swap ${here}…`, () => { marked = cursor; render(); }, 'primary'));
@@ -153,6 +154,7 @@ export function openGrid(app, boxId, cursorSlot) {
     className: 'grid-modal',
     body,
     autofocus: false,
+    onClose,
     onEscape: () => {
       if (marked) {
         marked = null;
@@ -183,7 +185,7 @@ export function openGrid(app, boxId, cursorSlot) {
       },
       a: () => {
         modal.close();
-        app.quickAdd(`${slotName({ box, number: cursor })} `);
+        app.add({ slot: slotName({ box, number: cursor }) });
       },
     }[e.key];
     if (handled) {

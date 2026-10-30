@@ -54,11 +54,11 @@ export function initKeys(app) {
       case 'G': app.moveCursorTo(-1); return true;
       case 'e': case 'Enter': {
         const row = app.cursorRow();
-        if (row?.kind === 'empty') app.quickAdd(`${row.slot} `);
+        if (row?.kind === 'empty') app.add({ slot: row.slot });
         else app.edit();
         return true;
       }
-      case 'a': case 'q': app.quickAdd(); return true;
+      case 'a': case 'q': app.add(); return true;
       case '+': case '=': app.changeQuantity(app.cursorItem(), 1); return true;
       case '-': app.changeQuantity(app.cursorItem(), -1); return true;
       case 'x': app.setQuantity(); return true;

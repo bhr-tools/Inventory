@@ -1,4 +1,4 @@
-// Small dialogs: choose a slot, swap two slots, change tags.
+// Small dialogs: swap two slots by their ids, change tags, type a quantity.
 
 import { h } from '../dom.js';
 import { openModal } from '../ui/overlay.js';
@@ -33,30 +33,6 @@ function okOnEnter(modal, inputs, submit) {
       }
     });
   }
-}
-
-/** Resolves to a canonical slot ("A-12"), or null when cancelled. */
-export function pickSlot(app, { title, value = '', okText = 'OK' }) {
-  return new Promise((resolve) => {
-    let answer = null;
-    const f = slotField(app, value, 'A-12');
-    const submit = () => {
-      if (!f.slot()) return f.input.focus();
-      answer = f.slot();
-      m.close();
-    };
-    const m = openModal({
-      title,
-      className: 'dialog',
-      body: f.el,
-      footer: [
-        h('button', { type: 'button', class: 'button', onclick: () => m.close() }, 'Cancel'),
-        h('button', { type: 'button', class: 'button primary', onclick: submit }, okText),
-      ],
-      onClose: () => resolve(answer),
-    });
-    okOnEnter(m, [f.input], submit);
-  });
 }
 
 /** Resolves to [a, b], or null. Everything in a goes to b and the other way round. */
