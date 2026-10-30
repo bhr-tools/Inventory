@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -15,6 +16,46 @@ func openTest(t *testing.T) *Store {
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+// A database created by the first release (stock levels) keeps its items and
+// turns "out" into a count of 0.
+func TestMigratesStockToQuantity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		migrations[0],
+		`INSERT INTO items (id, name, name_key, stock, created_at, updated_at) VALUES
+			('a', 'Bolts', 'bolts', 'out', '', ''),
+			('b', 'Nuts', 'nuts', 'low', '', ''),
+			('c', 'Glue', 'glue', '', '', '')`,
+		"PRAGMA user_version = 1",
+	} {
+		if _, err := old.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	items, err := s.Items()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]*int{}
+	for _, it := range items {
+		got[it.Name] = it.Quantity
+	}
+	if len(got) != 3 || got["Bolts"] == nil || *got["Bolts"] != 0 || got["Nuts"] != nil || got["Glue"] != nil {
+		t.Fatalf("quantities after migration: %v", got)
+	}
 }
 
 func mustCreate(t *testing.T, s *Store, in ItemInput) Item {

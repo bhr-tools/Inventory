@@ -104,7 +104,7 @@ var migrations = []string{
 		name_key TEXT NOT NULL UNIQUE,
 		description TEXT NOT NULL DEFAULT '',
 		notes TEXT NOT NULL DEFAULT '',
-		quantity INTEGER, -- NULL: not counted
+		stock TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL
 	);
@@ -145,6 +145,11 @@ var migrations = []string{
 		token TEXT PRIMARY KEY,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);`,
+
+	// 2: a count replaces the stock level; "out" becomes 0 (shopping list).
+	`ALTER TABLE items ADD COLUMN quantity INTEGER; -- NULL: not counted
+	UPDATE items SET quantity = 0 WHERE stock = 'out';
+	ALTER TABLE items DROP COLUMN stock;`,
 }
 
 func (s *Store) migrate() error {
