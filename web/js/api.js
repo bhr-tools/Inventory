@@ -69,6 +69,8 @@ export const api = {
     remove: (ids) => post('/api/items/delete', { ids }),
     /** Puts items back as they were (also undoes edits). */
     restore: (items) => post('/api/items/restore', { items }),
+    /** change: { delta } or { set } */
+    quantity: (itemId, change) => post(`/api/items/${id(itemId)}/quantity`, change),
     move: (ids, slot) => post('/api/items/move', { ids, slot }),
     tag: (ids, add, remove) => post('/api/items/tag', { ids, add, remove }),
   },

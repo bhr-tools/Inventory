@@ -50,6 +50,12 @@ func TestItemLifecycle(t *testing.T) {
 	}
 
 	call(t, h, "POST", "/api/items", `{"name":"Velcro","slots":["B-2"]}`)
+	if code, res := call(t, h, "POST", "/api/items/"+id+"/quantity", `{"delta":-1}`); code != 200 || res["quantity"] != float64(0) {
+		t.Fatalf("quantity: %d %v", code, res)
+	}
+	if code, res := call(t, h, "POST", "/api/items/"+id+"/quantity", `{"set":12}`); code != 200 || res["quantity"] != float64(12) {
+		t.Fatalf("set quantity: %d %v", code, res)
+	}
 	if code, inv := call(t, h, "POST", "/api/slots/swap", `{"a":"A-1","b":"B-2"}`); code != 200 || len(inv["items"].([]any)) != 2 {
 		t.Fatalf("swap: %d %v", code, inv)
 	}
@@ -73,7 +79,7 @@ func TestItemLifecycle(t *testing.T) {
 
 func TestCSVRoundTrip(t *testing.T) {
 	h := newTestAPI(t)
-	call(t, h, "POST", "/api/items", `{"name":"Scratch","slots":["C-3"],"tags":["fixing"],"aliases":["velcro","hook and loop"],"notes":"line 1\nline 2"}`)
+	call(t, h, "POST", "/api/items", `{"name":"Scratch","slots":["C-3"],"tags":["fixing"],"aliases":["velcro","hook and loop"],"notes":"line 1\nline 2","quantity":0}`)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/api/export", nil))
 	exported := rec.Body.String()
@@ -91,7 +97,7 @@ func TestCSVRoundTrip(t *testing.T) {
 	}
 	_, inv := call(t, other, "GET", "/api/inventory", "")
 	it := inv["items"].([]any)[0].(map[string]any)
-	if it["notes"] != "line 1\nline 2" || len(it["aliases"].([]any)) != 2 {
+	if it["notes"] != "line 1\nline 2" || len(it["aliases"].([]any)) != 2 || it["quantity"] != float64(0) {
 		t.Fatalf("imported %v", it)
 	}
 }

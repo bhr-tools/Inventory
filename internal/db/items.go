@@ -13,7 +13,7 @@ type Item struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Notes       string   `json:"notes"`
-	Stock       string   `json:"stock"`
+	Quantity    *int     `json:"quantity"` // nil when not counted; 0 puts it on the shopping list
 	Slots       []string `json:"slots"`
 	Tags        []string `json:"tags"`
 	Aliases     []string `json:"aliases"`
@@ -26,7 +26,7 @@ type ItemInput struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Notes       string   `json:"notes"`
-	Stock       string   `json:"stock"`
+	Quantity    *int     `json:"quantity"`
 	Slots       []string `json:"slots"`
 	Tags        []string `json:"tags"`
 	Aliases     []string `json:"aliases"`
@@ -34,9 +34,10 @@ type ItemInput struct {
 
 // cleanItem is a validated ItemInput.
 type cleanItem struct {
-	name, key, description, notes, stock string
-	slots                                []Slot
-	tags, aliases                        []string
+	name, key, description, notes string
+	quantity                      *int
+	slots                         []Slot
+	tags, aliases                 []string
 }
 
 func (in ItemInput) clean() (cleanItem, error) {
@@ -57,9 +58,12 @@ func (in ItemInput) clean() (cleanItem, error) {
 	if len([]rune(c.notes)) > MaxNotesLength {
 		return c, invalid("Notes are at most %d characters long", MaxNotesLength)
 	}
-	c.stock = strings.ToLower(strings.TrimSpace(in.Stock))
-	if !stockLevels[c.stock] {
-		return c, invalid("Stock must be plenty, low, out or empty")
+	if in.Quantity != nil {
+		if *in.Quantity < 0 || *in.Quantity > MaxQuantity {
+			return c, invalid("The quantity goes from 0 to %d", MaxQuantity)
+		}
+		q := *in.Quantity
+		c.quantity = &q
 	}
 	var err error
 	if c.slots, err = parseSlots(in.Slots); err != nil {
@@ -105,13 +109,13 @@ func (s *Store) loadItems(q querier, id string) ([]Item, error) {
 	byID := map[string]*Item{}
 	var order []*Item
 
-	rows, err := q.Query(`SELECT id, name, description, notes, stock, created_at, updated_at FROM items`+itemFilter, args...)
+	rows, err := q.Query(`SELECT id, name, description, notes, quantity, created_at, updated_at FROM items`+itemFilter, args...)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		it := &Item{Slots: []string{}, Tags: []string{}, Aliases: []string{}}
-		if err := rows.Scan(&it.ID, &it.Name, &it.Description, &it.Notes, &it.Stock, &it.CreatedAt, &it.UpdatedAt); err != nil {
+		if err := rows.Scan(&it.ID, &it.Name, &it.Description, &it.Notes, &it.Quantity, &it.CreatedAt, &it.UpdatedAt); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -213,8 +217,8 @@ func (s *Store) CreateItem(in ItemInput) (Item, error) {
 			return err
 		}
 		t := now()
-		if _, err := tx.Exec(`INSERT INTO items (id, name, name_key, description, notes, stock, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, c.name, c.key, c.description, c.notes, c.stock, t, t); err != nil {
+		if _, err := tx.Exec(`INSERT INTO items (id, name, name_key, description, notes, quantity, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, c.name, c.key, c.description, c.notes, c.quantity, t, t); err != nil {
 			return err
 		}
 		return writeLists(tx, id, c)
@@ -235,8 +239,8 @@ func (s *Store) UpdateItem(id string, in ItemInput) (Item, error) {
 		if err := checkUniqueName(tx, c, id); err != nil {
 			return err
 		}
-		res, err := tx.Exec(`UPDATE items SET name = ?, name_key = ?, description = ?, notes = ?, stock = ?, updated_at = ? WHERE id = ?`,
-			c.name, c.key, c.description, c.notes, c.stock, now(), id)
+		res, err := tx.Exec(`UPDATE items SET name = ?, name_key = ?, description = ?, notes = ?, quantity = ?, updated_at = ? WHERE id = ?`,
+			c.name, c.key, c.description, c.notes, c.quantity, now(), id)
 		if err != nil {
 			return err
 		}
@@ -318,7 +322,7 @@ func (s *Store) DeleteItems(ids []string) ([]Item, error) {
 func (s *Store) RestoreItems(items []Item) error {
 	return s.tx(func(tx *sql.Tx) error {
 		for _, it := range items {
-			c, err := ItemInput{Name: it.Name, Description: it.Description, Notes: it.Notes, Stock: it.Stock,
+			c, err := ItemInput{Name: it.Name, Description: it.Description, Notes: it.Notes, Quantity: it.Quantity,
 				Slots: it.Slots, Tags: it.Tags, Aliases: it.Aliases}.clean()
 			if err != nil {
 				return err
@@ -333,12 +337,12 @@ func (s *Store) RestoreItems(items []Item) error {
 			if created == "" {
 				created = now()
 			}
-			if _, err := tx.Exec(`INSERT INTO items (id, name, name_key, description, notes, stock, created_at, updated_at)
+			if _, err := tx.Exec(`INSERT INTO items (id, name, name_key, description, notes, quantity, created_at, updated_at)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(id) DO UPDATE SET name = excluded.name, name_key = excluded.name_key,
-					description = excluded.description, notes = excluded.notes, stock = excluded.stock,
+					description = excluded.description, notes = excluded.notes, quantity = excluded.quantity,
 					updated_at = excluded.updated_at`,
-				it.ID, c.name, c.key, c.description, c.notes, c.stock, created, now()); err != nil {
+				it.ID, c.name, c.key, c.description, c.notes, c.quantity, created, now()); err != nil {
 				return err
 			}
 			if err := writeLists(tx, it.ID, c); err != nil {
@@ -465,4 +469,31 @@ func (s *Store) TagItems(ids, add, remove []string) error {
 		}
 		return nil
 	})
+}
+
+// ChangeQuantity adds delta to the quantity of an item (an item that was not
+// counted starts from 0), or sets it when set is not nil. It never goes below
+// zero, and the change is atomic, so quick presses from two devices add up.
+func (s *Store) ChangeQuantity(id string, delta int, set *int) (Item, error) {
+	if set != nil && (*set < 0 || *set > MaxQuantity) {
+		return Item{}, invalid("The quantity goes from 0 to %d", MaxQuantity)
+	}
+	if delta < -MaxQuantity || delta > MaxQuantity {
+		return Item{}, invalid("The quantity goes from 0 to %d", MaxQuantity)
+	}
+	var res sql.Result
+	var err error
+	if set != nil {
+		res, err = s.db.Exec(`UPDATE items SET quantity = ?, updated_at = ? WHERE id = ?`, *set, now(), id)
+	} else {
+		res, err = s.db.Exec(`UPDATE items SET quantity = MIN(?, MAX(0, COALESCE(quantity, 0) + ?)), updated_at = ? WHERE id = ?`,
+			MaxQuantity, delta, now(), id)
+	}
+	if err != nil {
+		return Item{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Item{}, ErrNotFound
+	}
+	return s.Item(id)
 }

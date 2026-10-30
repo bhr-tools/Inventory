@@ -159,10 +159,38 @@ button.chip:hover { background: var(--rp-hl-med); }
 button.slot-pill:hover { background: color-mix(in srgb, var(--rp-pine) 15%, transparent); }
 .slot-more { color: var(--rp-muted); font-size: 0.74rem; }
 
-.stock { padding: 0 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
-.stock.low { background: color-mix(in srgb, var(--rp-gold) 18%, transparent); color: var(--rp-gold); }
-.stock.out { background: color-mix(in srgb, var(--rp-love) 18%, transparent); color: var(--rp-love); }
-.stock.plenty { background: color-mix(in srgb, var(--rp-foam) 15%, transparent); color: var(--rp-foam); }
+.chip.quantity { color: var(--rp-gold); font-family: var(--mono); }
+
+/* Quantity: a badge in rows, a stepper in the preview. */
+.qty { padding: 0 6px; color: var(--rp-gold); font: 600 0.76rem var(--mono); white-space: nowrap; }
+.qty.zero { border-radius: 4px; background: color-mix(in srgb, var(--rp-love) 16%, transparent); color: var(--rp-love); }
+.quantity-control { display: flex; align-items: center; gap: 6px; }
+.qty-step {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--rp-subtle);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.qty-step:hover:not(:disabled) { background: var(--rp-overlay); color: var(--rp-text); }
+.qty-value {
+  min-width: 56px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--rp-gold);
+  font: 700 1rem var(--mono);
+}
+.qty-value:hover { background: var(--rp-overlay); }
+.quantity-control.zero .qty-value { color: var(--rp-love); }
+.quantity-control .qty-value:only-of-type { font-weight: 400; }
+.qty-note { color: var(--rp-love); font-size: 0.8rem; }
+.shopping-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.qty-dialog { display: flex; gap: 8px; }
+.qty-input { height: 44px; font: 700 1.2rem var(--mono); text-align: center; }
+.qty-big { width: 44px; height: 44px; font-size: 1.3rem; }
 
 /* ==========================================================================
    Layout
@@ -211,6 +239,31 @@ button.slot-pill:hover { background: color-mix(in srgb, var(--rp-pine) 15%, tran
 .result-count { color: var(--rp-muted); font: 0.76rem var(--mono); white-space: nowrap; }
 
 .panes { display: flex; flex: 1; min-height: 0; }
+.results-pane { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+
+.tabs { display: flex; gap: 2px; flex-shrink: 0; padding: 8px 10px 0; border-bottom: 1px solid var(--border); }
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-bottom: 2px solid transparent;
+  color: var(--rp-muted);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+.tab:hover { color: var(--rp-text); }
+.tab.active { border-bottom-color: var(--accent); color: var(--rp-text); }
+.tab-count:not(:empty) {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--rp-love) 18%, transparent);
+  color: var(--rp-love);
+  font: 700 0.7rem/18px var(--mono);
+  text-align: center;
+}
 
 .results {
   flex: 1;
@@ -328,7 +381,25 @@ button.slot-pill:hover { background: color-mix(in srgb, var(--rp-pine) 15%, tran
 .quick-row { display: flex; gap: 8px; }
 .quick-input { height: 40px; font: 0.95rem var(--mono); }
 .quick-row .button { height: 40px; }
-.quick-parsed { display: flex; flex-wrap: wrap; gap: 6px; min-height: 22px; }
+.quick-guide {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--rp-base);
+}
+.guide-row { display: contents; }
+.guide-label, .guide-values, .guide-help { padding: 3px 0; }
+.guide-label { color: var(--rp-muted); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; line-height: 22px; text-transform: uppercase; }
+.guide-values { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.guide-help { min-width: 0; color: var(--rp-muted); font-size: 0.8rem; line-height: 22px; }
+.guide-help code { padding: 1px 5px; border-radius: 4px; background: var(--rp-overlay); }
+.guide-row.filled .guide-label { color: var(--rp-subtle); }
+.guide-row.typing .guide-label { color: var(--accent); }
+.guide-row.typing .guide-help { color: var(--rp-text); }
+.guide-row.typing .guide-label::before { content: "▸ "; }
 .quick-notice {
   padding: 8px 12px;
   border: 1px solid color-mix(in srgb, var(--rp-gold) 50%, transparent);

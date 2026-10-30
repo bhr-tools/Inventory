@@ -21,9 +21,10 @@ export function openEditor(app, item) {
   const slots = text(item.slots.join(' '), 'A-12 B-3');
   const tags = text(item.tags.join(' '), 'electronic/mcu tool');
   const aliases = text(item.aliases.join(', '), 'Other names, separated by commas');
-  const stock = h('select', { class: 'input' },
-    [['', 'Not tracked'], ['plenty', 'Plenty'], ['low', 'Running low'], ['out', 'Out of stock']]
-      .map(([v, label]) => h('option', { value: v, selected: item.stock === v }, label)));
+  const quantity = h('input', {
+    type: 'number', class: 'input', min: 0, max: 1000000, step: 1, inputMode: 'numeric',
+    value: item.quantity ?? '', placeholder: 'Not counted',
+  });
   const description = h('textarea', { class: 'input textarea', value: item.description, placeholder: 'Value, size, reference…', rows: 2, maxLength: 2000 });
   const notes = h('textarea', { class: 'input textarea', value: item.notes, placeholder: 'Datasheet link, where to buy, pinout…', rows: 4, maxLength: 10000 });
   const error = h('div', { class: 'form-error', hidden: true });
@@ -69,7 +70,7 @@ export function openEditor(app, item) {
         slots: slotList,
         tags: tags.value.split(/\s+/).filter(Boolean),
         aliases: aliases.value.split(',').map((a) => a.trim()).filter(Boolean),
-        stock: stock.value,
+        quantity: quantity.value.trim() === '' ? null : Number(quantity.value),
         description: description.value,
         notes: notes.value,
       });
@@ -87,7 +88,7 @@ export function openEditor(app, item) {
     field('Name', name, nameWarning),
     h('div', { class: 'field-pair' },
       field('Slots', slotBox),
-      field('Stock', stock)),
+      field('Quantity', quantity, h('span', { class: 'field-info' }, 'Empty: not counted. 0: shopping list.'))),
     field('Tags', tagBox),
     field('Also known as', aliases),
     field('Description', description),

@@ -1,10 +1,12 @@
-// Quick Add: one line, parsed as you type (see quickadd.js), with suggestions
-// under it. While the name is typed, the suggestions are the existing items
+// Quick Add: one line, parsed as you type (see quickadd.js). A guide under it
+// shows what was understood for each field, and the syntax with an example for
+// the fields not filled yet; the field being typed is highlighted. Suggestions
+// come next. While the name is typed, the suggestions are the existing items
 // that look like it, so a typo does not create a second copy of a part: pick
 // one (↓ then Enter) to add the new slots, tags and aliases to it instead.
 // The dialog stays open to add several parts in a row.
 
-import { h, clear } from '../dom.js';
+import { h } from '../dom.js';
 import { openModal, toast } from '../ui/overlay.js';
 import { attachCompletion } from '../ui/complete.js';
 import { parseQuickAdd, tokenAt } from '../quickadd.js';
@@ -19,17 +21,17 @@ export function openQuickAdd(app, { prefill = '' } = {}) {
     type: 'text',
     class: 'input quick-input',
     value: prefill,
-    placeholder: 'Name  A-12  #tag  ~alias  !low',
+    placeholder: 'e.g. ESP32-WROOM B-2 #electronic/mcu x5',
     autocomplete: 'off',
     spellcheck: false,
     maxLength: 400,
     attrs: { 'aria-label': 'New item', autocapitalize: 'off' },
   });
-  const parsed = h('div', { class: 'quick-parsed' });
+  const guide = h('div', { class: 'quick-guide' });
   const notice = h('div', { class: 'quick-notice', hidden: true });
   const suggestions = h('div', { class: 'quick-suggestions' });
   const submit = h('button', { type: 'submit', class: 'button primary' }, 'Add');
-  const form = h('form', { class: 'quick-add-form' }, h('div', { class: 'quick-row' }, input, submit), parsed, notice, suggestions);
+  const form = h('form', { class: 'quick-add-form' }, h('div', { class: 'quick-row' }, input, submit), guide, notice, suggestions);
 
   const parse = () => parseQuickAdd(input.value, { knownBoxes: app.knownBoxes });
   const similar = (name) => similarItems(app.index, name);
@@ -67,20 +69,27 @@ export function openQuickAdd(app, { prefill = '' } = {}) {
 
   function update() {
     const p = parse();
-    clear(parsed);
+    const caret = input.selectionStart ?? input.value.length;
+    const typing = input.value.trim() ? tokenAt(input.value, caret, { knownBoxes: app.knownBoxes }).type : 'name';
     const chip = (cls, text, title) => h('span', { class: ['chip', cls], title }, text);
-    if (p.name) parsed.append(chip('name', p.name));
-    for (const s of p.slots) parsed.append(chip('slot', `${s} · ${slotSummary(app, s)}`));
-    for (const t of p.tags) parsed.append(chip('tag', `#${t}`, app.tagCounts.has(t) ? '' : 'New tag'));
-    for (const a of p.aliases) parsed.append(chip('alias', a));
-    if (p.stock) parsed.append(chip(`stock ${p.stock}`, p.stock));
+    const row = (type, label, values, syntax, example) => h('div', { class: ['guide-row', typing === type && 'typing', values.length && 'filled'] },
+      h('span', { class: 'guide-label' }, label),
+      values.length
+        ? h('span', { class: 'guide-values' }, values)
+        : h('span', { class: 'guide-help' }, h('code', null, syntax), ' ', example));
+    guide.replaceChildren(
+      row('name', 'Name', p.name ? [chip('name', p.name)] : [], 'any words', 'what it is: ESP32-WROOM, Velcro strip'),
+      row('slot', 'Slots', p.slots.map((s) => chip('slot', `${s} · ${slotSummary(app, s)}`)), 'A-12', 'box and slot, several allowed'),
+      row('tag', 'Tags', p.tags.map((t) => chip('tag', app.tagCounts.has(t) ? `#${t}` : `#${t} (new)`)), '#tag', '#electronic/mcu for a sub-tag'),
+      row('alias', 'Aliases', p.aliases.map((a) => chip('alias', a)), '~alias', 'other names: ~esp ~"wifi board"'),
+      row('quantity', 'Quantity', p.quantity !== null ? [chip('quantity', String(p.quantity))] : [], 'x5', 'how many; leave out to not count'));
 
     const exact = p.name ? similar(p.name).find((m) => m.exact) : null;
     notice.hidden = !exact;
     if (exact) {
       notice.replaceChildren(
         `“${exact.item.name}” is already in ${exact.item.slots.join(', ') || 'no slot'}. `,
-        h('strong', null, 'Enter'), ' adds the slots and tags to it.');
+        h('strong', null, 'Enter'), p.quantity ? ` adds the slots, tags and ${p.quantity} more to it.` : ' adds the slots and tags to it.');
     }
     submit.textContent = exact ? 'Add to it' : 'Add';
   }
@@ -96,7 +105,8 @@ export function openQuickAdd(app, { prefill = '' } = {}) {
       slots: union(item.slots, p.slots),
       tags: union(item.tags, p.tags),
       aliases: union(aliases, []),
-      stock: p.stock || item.stock,
+      // New parts of a counted item add up.
+      quantity: p.quantity === null ? item.quantity : (item.quantity ?? 0) + p.quantity,
     }));
     if (!updated) return;
     app.putItem(updated);
@@ -114,7 +124,7 @@ export function openQuickAdd(app, { prefill = '' } = {}) {
     const exact = similar(p.name).find((m) => m.exact);
     if (exact) return mergeInto(exact.item, false);
     try {
-      const item = await api.items.create({ name: p.name, slots: p.slots, tags: p.tags, aliases: p.aliases, stock: p.stock });
+      const item = await api.items.create({ name: p.name, slots: p.slots, tags: p.tags, aliases: p.aliases, quantity: p.quantity });
       app.putItem(item);
       app.done(`Added “${item.name}”${item.slots.length ? ` to ${item.slots.join(', ')}` : ''}`, () => api.items.remove([item.id]));
       reset();
@@ -141,6 +151,9 @@ export function openQuickAdd(app, { prefill = '' } = {}) {
     else create();
   });
   input.addEventListener('input', update);
+  // Moving the caret changes which field of the guide is highlighted.
+  input.addEventListener('keyup', (e) => { if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End') update(); });
+  input.addEventListener('click', update);
 
   openModal({ title: 'Add parts', body: form, className: 'quick-add' });
   const end = input.value.length;

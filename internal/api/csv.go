@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,7 +16,8 @@ import (
 
 // CSV columns. Slots and tags never contain spaces, so they are separated by
 // spaces; aliases may, so they are separated by semicolons.
-var csvHeader = []string{"name", "slots", "tags", "aliases", "stock", "description", "notes"}
+// An empty quantity means the item is not counted.
+var csvHeader = []string{"name", "slots", "tags", "aliases", "quantity", "description", "notes"}
 
 func (a *API) exportCSV(w http.ResponseWriter, r *http.Request) {
 	items, err := a.store.Items()
@@ -28,7 +30,7 @@ func (a *API) exportCSV(w http.ResponseWriter, r *http.Request) {
 	_ = out.Write(csvHeader)
 	for _, it := range items {
 		_ = out.Write([]string{it.Name, strings.Join(it.Slots, " "), strings.Join(it.Tags, " "),
-			strings.Join(it.Aliases, "; "), it.Stock, it.Description, it.Notes})
+			strings.Join(it.Aliases, "; "), quantityText(it.Quantity), it.Description, it.Notes})
 	}
 	out.Flush()
 	if err := out.Error(); err != nil {
@@ -107,15 +109,30 @@ func parseCSV(src io.Reader) ([]db.ItemInput, error) {
 		if field("name") == "" {
 			continue
 		}
+		var quantity *int
+		if q := field("quantity"); q != "" {
+			n, err := strconv.Atoi(q)
+			if err != nil {
+				return nil, fmt.Errorf("Line %d: the quantity %q is not a whole number", line, q)
+			}
+			quantity = &n
+		}
 		inputs = append(inputs, db.ItemInput{
 			Name:        field("name"),
 			Slots:       strings.Fields(field("slots")),
 			Tags:        strings.Fields(field("tags")),
 			Aliases:     strings.Split(field("aliases"), ";"),
-			Stock:       field("stock"),
+			Quantity:    quantity,
 			Description: field("description"),
 			Notes:       field("notes"),
 		})
 	}
 	return inputs, nil
+}
+
+func quantityText(q *int) string {
+	if q == nil {
+		return ""
+	}
+	return strconv.Itoa(*q)
 }

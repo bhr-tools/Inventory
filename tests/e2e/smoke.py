@@ -13,12 +13,12 @@ PASSWORD = "correct horse"
 errors = []
 
 SEED = [
-    {"name": "Condensateur céramique 100nF", "slots": ["A-12"], "tags": ["electronic/passive/capacitor"], "aliases": ["condo", "decoupling cap"], "stock": "plenty"},
+    {"name": "Condensateur céramique 100nF", "slots": ["A-12"], "tags": ["electronic/passive/capacitor"], "aliases": ["condo", "decoupling cap"], "quantity": 100},
     {"name": "Condensateur chimique 10µF", "slots": ["A-13"], "tags": ["electronic/passive/capacitor"]},
     {"name": "Résistance 10k", "slots": ["A-11"], "tags": ["electronic/passive/resistor"]},
-    {"name": "ESP32-WROOM", "slots": ["B-2"], "tags": ["electronic/mcu"], "aliases": ["esp", "wifi board"], "stock": "low",
+    {"name": "ESP32-WROOM", "slots": ["B-2"], "tags": ["electronic/mcu"], "aliases": ["esp", "wifi board"], "quantity": 1,
      "description": "Dev board, USB-C", "notes": "Flash with esptool.\nBoot button: hold GPIO0."},
-    {"name": "Arduino Nano", "slots": ["B-3"], "tags": ["electronic/mcu"]},
+    {"name": "Arduino Nano", "slots": ["B-3"], "tags": ["electronic/mcu"], "quantity": 2},
     {"name": "Scratch adhésif noir", "slots": ["C-3"], "tags": ["fixing"], "aliases": ["velcro", "hook and loop"]},
     {"name": "Vis M3x10", "slots": ["C-1", "C-2"], "tags": ["hardware/screw"], "description": "Tête cylindrique, inox"},
     {"name": "Fer à souder", "tags": ["tool"]},
@@ -38,6 +38,11 @@ def shot(page, name):
 
 def rows(page):
     return page.locator("#results .row")
+
+
+def azerty(page, key):
+    """Presses a key Playwright has no keycode for, like the é of the AZERTY 2 key."""
+    page.evaluate("k => window.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }))", key)
 
 
 def type_search(page, text):
@@ -79,8 +84,8 @@ def desktop(browser):
     expect(rows(page)).to_have_count(2)
     type_search(page, "#tool -fer")
     expect(rows(page)).to_have_count(1)
-    type_search(page, "is:low")
-    expect(rows(page)).to_have_count(1)
+    type_search(page, "is:out")
+    expect(rows(page)).to_have_count(0)
     type_search(page, "is:empty @A")
     expect(rows(page)).to_have_count(21)
 
@@ -105,6 +110,18 @@ def desktop(browser):
     page.keyboard.press("a")
     qa = page.locator(".quick-input")
     expect(qa).to_be_focused()
+    # The guide shows the syntax of every field, and highlights the one being typed.
+    guide = page.locator(".quick-guide")
+    expect(guide.locator(".guide-row.typing .guide-label")).to_have_text("Name")
+    expect(guide).to_contain_text("x5")
+    qa.type("Fil de cuivre #ele")
+    expect(guide.locator(".guide-row.typing .guide-label")).to_have_text("Tags")
+    qa.type("ctronic x3")
+    expect(guide.locator(".guide-row.typing .guide-label")).to_have_text("Quantity")
+    expect(guide.locator(".chip.quantity")).to_have_text("3")
+    expect(guide.locator(".guide-row.filled")).to_have_count(3)
+    shot(page, "04a-quickadd-guide")
+    qa.fill("")
     qa.type("Condensateur ceramic 100 nF B-9")
     expect(page.locator(".quick-suggestions .complete-item").first).to_contain_text("Condensateur céramique 100nF")
     shot(page, "04-quickadd-similar")
@@ -114,8 +131,8 @@ def desktop(browser):
     expect(qa).to_have_value("")
 
     # The exact same name (case and accents aside) merges without asking.
-    qa.type("esp32-wroom C-9")
-    expect(page.locator(".quick-notice")).to_contain_text("already in B-2")
+    qa.type("esp32-wroom C-9 x4")
+    expect(page.locator(".quick-notice")).to_contain_text("4 more")
     qa.press("Enter")
     expect(page.locator(".toast")).to_contain_text("now in B-2, C-9")
 
@@ -183,8 +200,54 @@ def desktop(browser):
     expect(page.locator(".grid-tab.active")).to_have_text("B")
     page.keyboard.press("Escape")
 
+    # Quantity: ESP32 went 1 + 4 = 5; - three times, then x to 0.
+    type_search(page, "esp32")
+    page.keyboard.press("Escape")
+    expect(rows(page).first.locator(".qty")).to_have_text("×5")
+    page.keyboard.press("-")
+    page.keyboard.press("-")
+    page.keyboard.press("-")
+    expect(page.locator(".preview .qty-value")).to_have_text("2")
+    page.keyboard.press("x")
+    page.locator(".qty-input").fill("0")
+    page.keyboard.press("Enter")
+    expect(page.locator(".toast")).to_contain_text("added to the shopping list")
+    expect(page.locator("#shopping-count")).to_have_text("1")
+    page.keyboard.press("-")  # nothing below zero
+    expect(page.locator(".preview .qty-value")).to_have_text("0")
+
+    # Arduino: 2 → 0 with the − button.
+    type_search(page, "nano")
+    page.locator(".preview .qty-step").first.click()
+    page.locator(".preview .qty-step").first.click()
+    expect(page.locator("#shopping-count")).to_have_text("2")
+
+    # The shopping list: search inside it, restock one, delete the other.
+    page.keyboard.press("Escape")
+    page.keyboard.press("Escape")
+    azerty(page, "é")
+    expect(page.locator("#tab-shopping")).to_have_class("tab active")
+    expect(rows(page)).to_have_count(2)
+    shot(page, "07a-shopping")
+    type_search(page, "esp")
+    expect(rows(page)).to_have_count(1)
+    page.locator(".shopping-actions .button.primary").click()
+    page.locator(".qty-input").fill("10")
+    page.keyboard.press("Enter")
+    expect(page.locator(".toast")).to_contain_text("restocked (10)")
+    expect(rows(page)).to_have_count(0)
+    type_search(page, "")
+    page.keyboard.press("Escape")
+    expect(rows(page)).to_have_count(1)
+    page.keyboard.press("d")
+    expect(page.locator(".toast")).to_contain_text("Deleted “Arduino Nano”")
+    expect(page.locator("#shopping-count")).to_have_text("")
+    expect(page.locator(".empty-state")).to_contain_text("Nothing to buy")
+    azerty(page, "&")
+    expect(page.locator("#tab-inventory")).to_have_class("tab active")
+
     # Bulk: select two items, tag them.
-    type_search(page, "#mcu")
+    type_search(page, "#capacitor")
     page.keyboard.press("Escape")
     page.keyboard.press(" ")
     page.keyboard.press(" ")
@@ -237,8 +300,8 @@ def phone(browser, state):
     shot(page, "12-phone-preview")
     page.locator(".modal-overlay").click(position={"x": 10, "y": 10})
     page.locator("#fab").tap()
-    page.locator(".quick-input").type("Arduino nano clone")
-    expect(page.locator(".quick-suggestions .complete-item").first).to_contain_text("Arduino Nano")
+    page.locator(".quick-input").type("ESP32 clone")
+    expect(page.locator(".quick-suggestions .complete-item").first).to_contain_text("ESP32-WROOM")
     shot(page, "13-phone-quickadd")
     ctx.close()
 

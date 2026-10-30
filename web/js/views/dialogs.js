@@ -134,3 +134,54 @@ export function openTagDialog(app, items) {
     okOnEnter(m, [input], submit);
   });
 }
+
+/**
+ * Asks for a quantity. Resolves to { value } where value is a whole number,
+ * or null for "stop counting"; resolves to null when cancelled.
+ */
+export function openQuantityDialog(item) {
+  return new Promise((resolve) => {
+    let answer = null;
+    const input = h('input', {
+      type: 'number', class: 'input qty-input', min: 0, max: 1000000, step: 1, inputMode: 'numeric',
+      value: item.quantity ?? '', placeholder: '0',
+    });
+    const error = h('div', { class: 'field-info' });
+    const step = (delta) => {
+      input.value = String(Math.max(0, (Number(input.value) || 0) + delta));
+      input.focus();
+    };
+    const submit = () => {
+      const value = Number(input.value);
+      if (input.value.trim() === '' || !Number.isInteger(value) || value < 0) {
+        error.textContent = 'Type a whole number, 0 or more.';
+        return input.focus();
+      }
+      answer = { value };
+      m.close();
+    };
+    const m = openModal({
+      title: `How many “${item.name}”?`,
+      className: 'dialog',
+      body: [
+        h('div', { class: 'qty-dialog' },
+          h('button', { type: 'button', class: 'button qty-big', onclick: () => step(-1) }, '−'),
+          input,
+          h('button', { type: 'button', class: 'button qty-big', onclick: () => step(1) }, '+')),
+        error,
+        h('p', { class: 'dialog-message' }, 'At 0, the item goes to the shopping list.'),
+      ],
+      footer: [
+        item.quantity !== null && item.quantity !== undefined
+          ? h('button', { type: 'button', class: 'button', onclick: () => { answer = { value: null }; m.close(); } }, 'Stop counting')
+          : null,
+        h('span', { class: 'spacer' }),
+        h('button', { type: 'button', class: 'button', onclick: () => m.close() }, 'Cancel'),
+        h('button', { type: 'button', class: 'button primary', onclick: submit }, 'Set'),
+      ],
+      onClose: () => resolve(answer),
+    });
+    okOnEnter(m, [input], submit);
+    input.select();
+  });
+}

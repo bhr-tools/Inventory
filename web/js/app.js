@@ -10,14 +10,13 @@ import { slotSummary } from './suggest.js';
 import { initKeys } from './keys.js';
 import { openQuickAdd } from './views/add.js';
 import { openEditor } from './views/editor.js';
-import { pickSlot, openSwap, openTagDialog } from './views/dialogs.js';
+import { pickSlot, openSwap, openTagDialog, openQuantityDialog } from './views/dialogs.js';
 import { openGrid } from './views/grid.js';
 import { openTags } from './views/tags.js';
 import { openHelp } from './views/help.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_ROWS = 300; // rendered at once; the count shows the rest
-const STOCK_LABELS = { plenty: 'plenty', low: 'low', out: 'out' };
 
 class App {
   constructor() {
@@ -28,7 +27,11 @@ class App {
     this.slotMap = new Map(); // "A-12" → items
     this.tagCounts = new Map(); // tag → item count, with parent tags
     this.knownBoxes = new Set();
-    this.query = new URLSearchParams(location.search).get('q') || '';
+    const params = new URLSearchParams(location.search);
+    this.query = params.get('q') || '';
+    // 'inventory', or 'shopping': the items whose quantity dropped to 0.
+    this.view = params.get('view') === 'shopping' ? 'shopping' : 'inventory';
+    this.pendingQuantity = new Map(); // item id → requests in flight
     this.rows = []; // { kind: 'item', item } | { kind: 'empty', slot }
     this.slotBanner = null;
     this.cursor = 0;
@@ -52,6 +55,8 @@ class App {
     $('brand').prepend(icon('brandLogo'));
     $('search-icon').append(icon('search'));
     $('status-help').addEventListener('click', () => openHelp());
+    $('tab-inventory').addEventListener('click', () => this.setView('inventory'));
+    $('tab-shopping').addEventListener('click', () => this.setView('shopping'));
     onUnauthorized(() => this.showLogin());
     initKeys(this);
 
@@ -127,18 +132,41 @@ class App {
   setQuery(query, { keepInput = false } = {}) {
     this.query = query;
     if (!keepInput) this.search.value = query;
-    const url = new URL(location.href);
-    if (query) url.searchParams.set('q', query);
-    else url.searchParams.delete('q');
-    history.replaceState(null, '', url);
+    this.syncURL();
     this.runSearch();
     this.cursor = 0;
     this.render();
   }
 
+  setView(view) {
+    if (view === this.view) return;
+    this.view = view;
+    this.selected.clear();
+    this.syncURL();
+    this.runSearch();
+    this.cursor = 0;
+    this.render();
+  }
+
+  /** Keeps the search and the tab in the URL, so they survive a reload and can be bookmarked. */
+  syncURL() {
+    const url = new URL(location.href);
+    if (this.query) url.searchParams.set('q', this.query);
+    else url.searchParams.delete('q');
+    if (this.view === 'shopping') url.searchParams.set('view', 'shopping');
+    else url.searchParams.delete('view');
+    history.replaceState(null, '', url);
+  }
+
   runSearch() {
     const q = parseQuery(this.query);
     this.slotBanner = null;
+    if (this.view === 'shopping') {
+      this.rows = search(this.index, q).hits
+        .filter((hit) => hit.item.quantity === 0)
+        .map((hit) => ({ kind: 'item', item: hit.item }));
+      return;
+    }
     if (q.flags.includes('empty')) {
       this.rows = this.emptySlots(q.boxes).map((slot) => ({ kind: 'empty', slot }));
       return;
@@ -201,6 +229,12 @@ class App {
         h('span', null, count ? `${count} item${count === 1 ? '' : 's'} in this slot` : 'This slot is empty'),
         count ? null : h('button', { type: 'button', class: 'button', onclick: () => this.quickAdd(`${slot} `) }, 'Add something here')));
     }
+    if (!this.rows.length && this.view === 'shopping') {
+      list.append(h('div', { class: 'empty-state' }, this.query
+        ? 'Nothing to buy matches this search.'
+        : h('span', null, 'Nothing to buy. Items land here when their quantity drops to 0 (', h('kbd', null, '-'), ' on an item).')));
+      return;
+    }
     if (!this.rows.length) {
       list.append(h('div', { class: 'empty-state' }, this.items.length
         ? (this.slotBanner ? null : 'Nothing matches. Try fewer words, a tag (#…) or a box (@A).')
@@ -253,7 +287,7 @@ class App {
     name,
     h('span', { class: 'row-tags' }, it.tags.map((t) => `#${t}`).join(' ')),
     h('span', { class: 'row-slots' },
-      it.stock ? h('span', { class: ['stock', it.stock] }, STOCK_LABELS[it.stock]) : null,
+      quantityBadge(it),
       it.slots.length
       ? it.slots.slice(0, 3).map((s) => h('span', { class: 'slot-pill' }, s)).concat(it.slots.length > 3 ? [h('span', { class: 'slot-more' }, `+${it.slots.length - 3}`)] : [])
       : h('span', { class: 'slot-pill none' }, 'no slot')));
@@ -282,8 +316,11 @@ class App {
     return h('div', { class: 'preview-body' },
       h('h2', { class: 'preview-title' }, it.name),
       h('div', { class: 'preview-slots' },
-        it.slots.length ? it.slots.map((s) => link(s, s, 'slot-pill big')) : h('span', { class: 'slot-pill big none' }, 'no slot'),
-        it.stock ? h('span', { class: ['stock', it.stock] }, `stock: ${STOCK_LABELS[it.stock]}`) : null),
+        it.slots.length ? it.slots.map((s) => link(s, s, 'slot-pill big')) : h('span', { class: 'slot-pill big none' }, 'no slot')),
+      this.quantityControl(it),
+      it.quantity === 0 ? h('div', { class: 'shopping-actions' },
+        h('button', { type: 'button', class: 'button primary', onclick: () => this.setQuantity(it) }, h('kbd', null, 'x'), 'Bought some'),
+        h('button', { type: 'button', class: 'button danger-text', onclick: () => this.remove([it]) }, h('kbd', null, 'd'), 'Won’t buy again: delete')) : null,
       it.tags.length ? h('div', { class: 'chips' }, it.tags.map((t) => link(`#${t}`, `#${t}`, 'chip tag'))) : null,
       it.aliases.length ? section('Also known as', h('div', { class: 'chips' }, it.aliases.map((a) => h('span', { class: 'chip alias' }, a)))) : null,
       it.description ? section('Description', h('p', { class: 'preview-text' }, it.description)) : null,
@@ -294,6 +331,17 @@ class App {
         h('button', { type: 'button', class: 'button', onclick: () => this.swap(it.slots[0]) }, h('kbd', null, 's'), 'Swap'),
         h('button', { type: 'button', class: 'button danger-text', onclick: () => this.remove([it]) }, h('kbd', null, 'd'), 'Delete')),
       it.slots[0] ? this.neighbours(it.slots[0], it) : null);
+  }
+
+  /** − quantity + under the title; the number itself opens a field to type it. */
+  quantityControl(it) {
+    const counted = it.quantity !== null && it.quantity !== undefined;
+    return h('div', { class: ['quantity-control', it.quantity === 0 && 'zero'] },
+      h('button', { type: 'button', class: 'qty-step', title: 'One less (-)', disabled: !counted || it.quantity === 0, onclick: () => this.changeQuantity(it, -1) }, '−'),
+      h('button', { type: 'button', class: 'qty-value', title: 'Set the quantity (x)', onclick: () => this.setQuantity(it) },
+        counted ? String(it.quantity) : 'not counted'),
+      h('button', { type: 'button', class: 'qty-step', title: 'One more (+)', onclick: () => this.changeQuantity(it, 1) }, '+'),
+      it.quantity === 0 ? h('span', { class: 'qty-note' }, 'on the shopping list') : null);
   }
 
   /** What else is in the slot, and what sits next to it. */
@@ -328,7 +376,12 @@ class App {
     el.className = `status-mode ${insert ? 'insert' : 'normal'}`;
     const total = this.rows.length;
     $('status-position').textContent = `${total ? this.cursor + 1 : 0} / ${total}`;
-    $('result-count').textContent = `${total}/${this.items.length}`;
+    const pool = this.view === 'shopping' ? this.items.filter((it) => it.quantity === 0).length : this.items.length;
+    $('result-count').textContent = `${total}/${pool}`;
+    $('tab-inventory').classList.toggle('active', this.view === 'inventory');
+    $('tab-shopping').classList.toggle('active', this.view === 'shopping');
+    const toBuy = this.items.filter((it) => it.quantity === 0).length;
+    $('shopping-count').textContent = toBuy || '';
     $('status-selection').textContent = this.selected.size ? `${this.selected.size} selected` : '';
   }
 
@@ -483,6 +536,60 @@ class App {
     if (!data) return;
     this.setInventory(data);
     this.done(`Tags updated on ${items.length} item${items.length === 1 ? '' : 's'}`, undo);
+  }
+
+  /**
+   * Adds delta to the quantity, showing it at once. The server applies the
+   * same delta atomically; its answer is shown once no other change is pending.
+   */
+  async changeQuantity(item = this.cursorItem(), delta = 1) {
+    if (!item) return;
+    item = this.byId.get(item.id) || item;
+    const before = item.quantity ?? null;
+    const after = Math.max(0, (before ?? 0) + delta);
+    if (before === after) return;
+    const undo = this.snapshot([item]);
+    this.pendingQuantity.set(item.id, (this.pendingQuantity.get(item.id) || 0) + 1);
+    this.putItem({ ...item, quantity: after });
+    let updated;
+    try {
+      updated = await api.items.quantity(item.id, { delta });
+    } catch (err) {
+      this.report(err);
+    }
+    const pending = this.pendingQuantity.get(item.id) - 1;
+    if (pending) this.pendingQuantity.set(item.id, pending);
+    else this.pendingQuantity.delete(item.id);
+    if (!updated) return this.load();
+    if (!pending) this.putItem(updated);
+    this.quantityChanged(updated, before, undo);
+  }
+
+  async setQuantity(item = this.cursorItem()) {
+    if (!item) return;
+    const answer = await openQuantityDialog(item);
+    if (!answer) return;
+    const { value } = answer;
+    const before = item.quantity ?? null;
+    const undo = this.snapshot([item]);
+    // "Stop counting" is a full update, since the quantity endpoint only takes numbers.
+    const updated = await this.run(() => (value === null
+      ? api.items.update(item.id, { ...item, quantity: null })
+      : api.items.quantity(item.id, { set: value })));
+    if (!updated) return;
+    this.putItem(updated);
+    this.quantityChanged(updated, before, undo);
+  }
+
+  /** Records the undo and tells when an item enters or leaves the shopping list. */
+  quantityChanged(item, before, undo) {
+    if (item.quantity === 0 && before !== 0) {
+      this.done(`“${item.name}” is out: added to the shopping list`, undo);
+    } else if (before === 0 && item.quantity !== 0) {
+      this.done(`“${item.name}” restocked${item.quantity ? ` (${item.quantity})` : ''}`, undo);
+    } else {
+      this.undoStack.push({ message: `Quantity of “${item.name}”`, undo });
+    }
   }
 
   async remove(items = this.targets()) {
@@ -662,6 +769,12 @@ class App {
       footer: retry,
     });
   }
+}
+
+/** The quantity at the end of a row: "×12", or "0" in red; nothing when not counted. */
+function quantityBadge(it) {
+  if (it.quantity === null || it.quantity === undefined) return null;
+  return h('span', { class: ['qty', it.quantity === 0 && 'zero'], title: 'Quantity' }, it.quantity === 0 ? '0 left' : `×${it.quantity}`);
 }
 
 /** The server's order: by first slot, items without a slot last, then by name. */

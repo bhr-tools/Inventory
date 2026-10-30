@@ -59,6 +59,12 @@ export function initKeys(app) {
         return true;
       }
       case 'a': case 'q': app.quickAdd(); return true;
+      case '+': case '=': app.changeQuantity(app.cursorItem(), 1); return true;
+      case '-': app.changeQuantity(app.cursorItem(), -1); return true;
+      case 'x': app.setQuantity(); return true;
+      // 1 and 2, or & and é on AZERTY: the two tabs.
+      case '1': case '&': app.setView('inventory'); return true;
+      case '2': case 'é': app.setView('shopping'); return true;
       case ' ': app.toggleSelection(); return true;
       case 'm': app.moveTargets(); return true;
       case 's': app.swap(); return true;

@@ -104,7 +104,7 @@ var migrations = []string{
 		name_key TEXT NOT NULL UNIQUE,
 		description TEXT NOT NULL DEFAULT '',
 		notes TEXT NOT NULL DEFAULT '',
-		stock TEXT NOT NULL DEFAULT '',
+		quantity INTEGER, -- NULL: not counted
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL
 	);

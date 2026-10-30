@@ -8,13 +8,13 @@ import { parseQuery, indexItem, search, similarItems, highlight, hasTag } from '
 import { parseQuickAdd, tokenAt } from '../../web/js/quickadd.js';
 
 const item = (name, extra = {}) => ({
-  id: name, name, description: '', notes: '', stock: '', slots: [], tags: [], aliases: [], ...extra,
+  id: name, name, description: '', notes: '', quantity: null, slots: [], tags: [], aliases: [], ...extra,
 });
 
 const items = [
   item('Condensateur céramique 100nF', { slots: ['A-12'], tags: ['electronic/passive/capacitor'], aliases: ['condo', 'decoupling cap'] }),
   item('Condensateur chimique 10µF', { slots: ['A-13'], tags: ['electronic/passive/capacitor'] }),
-  item('ESP32-WROOM', { slots: ['B-2'], tags: ['electronic/mcu'], aliases: ['esp', 'wifi board'], stock: 'low' }),
+  item('ESP32-WROOM', { slots: ['B-2'], tags: ['electronic/mcu'], aliases: ['esp', 'wifi board'], quantity: 0 }),
   item('Scratch adhésif noir', { slots: ['C-3'], tags: ['fixing'], aliases: ['velcro', 'hook and loop'] }),
   item('Vis M3x10', { slots: ['C-1', 'C-2'], tags: ['hardware/screw'], description: 'Tête cylindrique, inox' }),
   item('Fer à souder', { tags: ['tool'] }),
@@ -38,12 +38,12 @@ test('slots', () => {
 });
 
 test('query parsing', () => {
-  const q = parseQuery('cond #Electronic @a -smd is:low A-12 -5');
+  const q = parseQuery('cond #Electronic @a -smd is:out A-12 -5');
   assert.deepEqual(q.terms, ['cond', 'a-12', '-5']);
   assert.deepEqual(q.tags, ['electronic']);
   assert.deepEqual(q.boxes, ['A']);
   assert.deepEqual(q.excluded, ['smd']);
-  assert.deepEqual(q.flags, ['low']);
+  assert.deepEqual(q.flags, ['out']);
   assert.equal(q.slot, 'A-12');
 });
 
@@ -66,7 +66,7 @@ test('filters', () => {
   assert.deepEqual(names('#mcu'), ['ESP32-WROOM']);               // sub-tag segment
   assert.deepEqual(names('#capacitor -chimique'), ['Condensateur céramique 100nF']);
   assert.deepEqual(names('@C'), ['Vis M3x10', 'Scratch adhésif noir']);
-  assert.deepEqual(names('is:low'), ['ESP32-WROOM']);
+  assert.deepEqual(names('is:out'), ['ESP32-WROOM']);
   assert.deepEqual(names('is:unplaced'), ['Fer à souder']);
   assert.ok(hasTag(items[0], 'electronic/passive'));
 });
@@ -94,7 +94,9 @@ test('similar items catch duplicates and typos before adding', () => {
   assert.equal(top('Velcro noir').item.name, 'Scratch adhésif noir');
   assert.equal(top('Velcro').matched, 'velcro');
   assert.equal(top('Fer a souder').exact, true);
+  assert.equal(top('ESP32 clone').item.name, 'ESP32-WROOM');
   assert.equal(similarItems(index, 'Multimètre').length, 0);
+  assert.equal(similarItems(index, 'Pince à dénuder').length, 0);
   assert.equal(similarItems(index, 'x').length, 0);
 });
 
@@ -106,12 +108,14 @@ test('highlight', () => {
 });
 
 test('quick add', () => {
-  const p = parseQuickAdd('ESP32-WROOM a-12 #Electronic/MCU ~esp ~"wifi board" !low B-3');
+  const p = parseQuickAdd('ESP32-WROOM a-12 #Electronic/MCU ~esp ~"wifi board" x25 B-3');
   assert.equal(p.name, 'ESP32-WROOM');
   assert.deepEqual(p.slots, ['A-12', 'B-3']);
   assert.deepEqual(p.tags, ['electronic/mcu']);
   assert.deepEqual(p.aliases, ['esp', 'wifi board']);
-  assert.equal(p.stock, 'low');
+  assert.equal(p.quantity, 25);
+  assert.equal(parseQuickAdd('Vis M3x10 x').quantity, null);   // "M3x10" and a lone "x" are names
+  assert.equal(parseQuickAdd('Vis M3x10 x').name, 'Vis M3x10 x');
 
   // Without a dash, a slot needs a known box: "M3" and "LM317" stay names.
   assert.equal(parseQuickAdd('Vis M3 LM317 C3').name, 'Vis M3 LM317 C3');
@@ -126,4 +130,6 @@ test('completion context', () => {
   assert.equal(tokenAt('ESP a-', 6).type, 'slot');
   assert.equal(tokenAt('ESP a-1', 7).value, 'A-1');
   assert.equal(tokenAt('ESP wro', 7).type, 'name');
+  assert.equal(tokenAt('ESP x12', 7).type, 'quantity');
+  assert.equal(tokenAt('ESP ~wi', 7).type, 'alias');
 });

@@ -16,6 +16,8 @@ const SECTIONS = [
     [['Enter', 'e'], 'Edit the item'],
     [['Space'], 'Select (then act on the selection)'],
     [['a'], 'Add parts'],
+    [['+', '-'], 'One more / one less'],
+    [['x'], 'Type the quantity'],
     [['m'], 'Move to a slot'],
     [['s'], 'Swap two slots'],
     [['t'], 'Add or remove tags'],
@@ -23,6 +25,7 @@ const SECTIONS = [
     [['u'], 'Undo'],
   ]],
   ['Views', [
+    [['1', '2'], 'Inventory / Shopping list (& é on AZERTY)'],
     [['b'], 'Boxes, as grids'],
     [['T'], 'Tags'],
     [['?'], 'This help'],
@@ -42,7 +45,7 @@ const SYNTAX = [
   ['#electronic', 'a tag and its sub-tags (#mcu finds electronic/mcu)'],
   ['@A', 'only box A'],
   ['-smd', 'without “smd”'],
-  ['is:low  is:out', 'stock running low, or out'],
+  ['is:out', 'quantity down to 0 (as the shopping list)'],
   ['is:empty', 'free slots of the configured boxes'],
   ['is:untagged  is:unplaced', 'items without tags, or without a slot'],
 ];
@@ -51,7 +54,7 @@ const ADD = [
   ['A-12', 'slot (several allowed); A12 works once box A exists'],
   ['#tag', 'tag, #parent/child for a sub-tag'],
   ['~alias  ~"two words"', 'another name to find it by'],
-  ['!low  !out  !plenty', 'stock'],
+  ['x5', 'quantity; leave out to not count'],
 ];
 
 export function openHelp() {

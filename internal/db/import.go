@@ -17,8 +17,8 @@ func (s *Store) ImportItems(inputs []ItemInput) (created, merged int, err error)
 			if err == sql.ErrNoRows {
 				id = newID()
 				t := now()
-				if _, err := tx.Exec(`INSERT INTO items (id, name, name_key, description, notes, stock, created_at, updated_at)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, c.name, c.key, c.description, c.notes, c.stock, t, t); err != nil {
+				if _, err := tx.Exec(`INSERT INTO items (id, name, name_key, description, notes, quantity, created_at, updated_at)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, c.name, c.key, c.description, c.notes, c.quantity, t, t); err != nil {
 					return err
 				}
 				if err := writeLists(tx, id, c); err != nil {
@@ -34,11 +34,15 @@ func (s *Store) ImportItems(inputs []ItemInput) (created, merged int, err error)
 			if err != nil {
 				return err
 			}
+			quantity := existing.Quantity
+			if c.quantity != nil {
+				quantity = c.quantity
+			}
 			m, err := ItemInput{
 				Name:        existing.Name,
 				Description: firstNonEmpty(existing.Description, c.description),
 				Notes:       firstNonEmpty(existing.Notes, c.notes),
-				Stock:       firstNonEmpty(c.stock, existing.Stock),
+				Quantity:    quantity,
 				Slots:       append(existing.Slots, slotStrings(c.slots)...),
 				Tags:        append(existing.Tags, c.tags...),
 				Aliases:     append(existing.Aliases, c.aliases...),
@@ -46,8 +50,8 @@ func (s *Store) ImportItems(inputs []ItemInput) (created, merged int, err error)
 			if err != nil {
 				return invalid("%q: %s", in.Name, err.Error())
 			}
-			if _, err := tx.Exec(`UPDATE items SET description = ?, notes = ?, stock = ?, updated_at = ? WHERE id = ?`,
-				m.description, m.notes, m.stock, now(), id); err != nil {
+			if _, err := tx.Exec(`UPDATE items SET description = ?, notes = ?, quantity = ?, updated_at = ? WHERE id = ?`,
+				m.description, m.notes, m.quantity, now(), id); err != nil {
 				return err
 			}
 			if err := writeLists(tx, id, m); err != nil {

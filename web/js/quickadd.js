@@ -1,14 +1,14 @@
 // Quick Add syntax, parsed as you type:
-//   ESP32-WROOM A-12 #electronic/mcu ~esp ~"wifi board" !low
+//   ESP32-WROOM A-12 #electronic/mcu ~esp ~"wifi board" x5
 // A-12 is a slot (several allowed), #tag a tag, ~alias an alias (quote it to
-// include spaces), !low / !out / !plenty the stock. Everything else is the name.
+// include spaces), x5 the quantity. Everything else is the name.
 // A slot needs its dash ("A-12") unless its box already exists, so that names
 // like "M3 screw" or "LM317" stay names.
 // Pure functions, tested under Node (tests/js).
 
 import { parseSlot, slotName } from './slots.js';
 
-const STOCK = new Set(['low', 'out', 'plenty']);
+const QUANTITY = /^[x×](\d{1,7})$/i;
 
 /** Splits text into tokens with their positions; a ~"quoted alias" is one token. */
 export function tokenize(text) {
@@ -19,11 +19,11 @@ export function tokenize(text) {
   return tokens;
 }
 
-/** The kind of a token: 'slot', 'tag', 'alias', 'stock' or 'name'. */
+/** The kind of a token: 'slot', 'tag', 'alias', 'quantity' or 'name'. */
 export function tokenType(token, knownBoxes = new Set()) {
   if (token.length > 1 && token.startsWith('#')) return 'tag';
   if (token.length > 1 && token.startsWith('~')) return 'alias';
-  if (token.startsWith('!') && STOCK.has(token.slice(1).toLowerCase())) return 'stock';
+  if (QUANTITY.test(token)) return 'quantity';
   const bare = token.startsWith('@') ? token.slice(1) : token;
   const slot = parseSlot(bare);
   if (slot && (token.startsWith('@') || bare.includes('-') || knownBoxes.has(slot.box))) return 'slot';
@@ -31,11 +31,11 @@ export function tokenType(token, knownBoxes = new Set()) {
 }
 
 /**
- * Parses a Quick Add line into { name, slots, tags, aliases, stock, tokens },
+ * Parses a Quick Add line into { name, slots, tags, aliases, quantity, tokens },
  * where tokens carry their type for highlighting.
  */
 export function parseQuickAdd(text, { knownBoxes = new Set() } = {}) {
-  const out = { name: '', slots: [], tags: [], aliases: [], stock: '', tokens: [] };
+  const out = { name: '', slots: [], tags: [], aliases: [], quantity: null, tokens: [] };
   const nameParts = [];
   for (const tok of tokenize(text)) {
     const type = tokenType(tok.text, knownBoxes);
@@ -56,8 +56,8 @@ export function parseQuickAdd(text, { knownBoxes = new Set() } = {}) {
         if (a && !out.aliases.includes(a)) out.aliases.push(a);
         break;
       }
-      case 'stock':
-        out.stock = tok.text.slice(1).toLowerCase();
+      case 'quantity':
+        out.quantity = Number(QUANTITY.exec(tok.text)[1]);
         break;
       default:
         nameParts.push(tok.text);
@@ -70,7 +70,7 @@ export function parseQuickAdd(text, { knownBoxes = new Set() } = {}) {
 /**
  * The token under the caret, for completion: { type, start, end, value }
  * where value is the text typed so far without its prefix. type is 'tag',
- * 'slot' (a box id followed by a dash, or a slot), or 'name'.
+ * 'alias', 'slot' (a box id followed by a dash, or a slot), 'quantity' or 'name'.
  */
 export function tokenAt(text, caret, { knownBoxes = new Set() } = {}) {
   const tok = tokenize(text).find((t) => t.start <= caret && caret <= t.end);
@@ -78,6 +78,7 @@ export function tokenAt(text, caret, { knownBoxes = new Set() } = {}) {
   const t = tok.text;
   if (t.startsWith('#')) return { type: 'tag', start: tok.start, end: tok.end, value: t.slice(1) };
   if (t.startsWith('~')) return { type: 'alias', start: tok.start, end: tok.end, value: t.slice(1) };
+  if (QUANTITY.test(t)) return { type: 'quantity', start: tok.start, end: tok.end, value: t.slice(1) };
   const bare = t.replace(/^@/, '');
   if (t.startsWith('@') || /^[A-Za-z][A-Za-z0-9]*-\d*$/.test(bare) || tokenType(t, knownBoxes) === 'slot') {
     return { type: 'slot', start: tok.start, end: tok.end, value: bare.toUpperCase() };

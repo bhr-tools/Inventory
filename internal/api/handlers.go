@@ -180,3 +180,20 @@ func (a *API) deleteBox(w http.ResponseWriter, r *http.Request) {
 	}
 	a.inventory(w, r)
 }
+
+// changeQuantity takes {"delta": -1} or {"set": 12}.
+func (a *API) changeQuantity(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Delta int  `json:"delta"`
+		Set   *int `json:"set"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	item, err := a.store.ChangeQuantity(r.PathValue("id"), req.Delta, req.Set)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}

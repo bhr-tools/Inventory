@@ -84,11 +84,11 @@ func TestCreateNormalizesAndRefusesDuplicates(t *testing.T) {
 	if _, err := s.UpdateItem(other.ID, ItemInput{Name: "resistance 10k"}); !errors.As(err, &dup) {
 		t.Fatalf("rename onto existing name: got %v", err)
 	}
-	if _, err := s.UpdateItem(it.ID, ItemInput{Name: "Résistance 10K", Stock: "low"}); err != nil {
+	if _, err := s.UpdateItem(it.ID, ItemInput{Name: "Résistance 10K", Quantity: intPtr(3)}); err != nil {
 		t.Fatalf("renaming an item to itself: %v", err)
 	}
-	if _, err := s.CreateItem(ItemInput{Name: "X", Stock: "lots"}); err == nil {
-		t.Fatal("invalid stock accepted")
+	if _, err := s.CreateItem(ItemInput{Name: "X", Quantity: intPtr(-1)}); err == nil {
+		t.Fatal("negative quantity accepted")
 	}
 }
 
@@ -236,5 +236,51 @@ func TestBoxes(t *testing.T) {
 	}
 	if _, err := s.SetBox(Box{ID: "1A"}); err == nil {
 		t.Fatal("invalid box id accepted")
+	}
+}
+
+func intPtr(n int) *int { return &n }
+
+func TestChangeQuantity(t *testing.T) {
+	s := openTest(t)
+	counted := mustCreate(t, s, ItemInput{Name: "Resistor", Quantity: intPtr(2)})
+	uncounted := mustCreate(t, s, ItemInput{Name: "Velcro"})
+	if uncounted.Quantity != nil {
+		t.Fatalf("uncounted item has quantity %d", *uncounted.Quantity)
+	}
+	q := func(it Item, err error) int {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if it.Quantity == nil {
+			t.Fatal("quantity is nil")
+		}
+		return *it.Quantity
+	}
+	if got := q(s.ChangeQuantity(counted.ID, -1, nil)); got != 1 {
+		t.Errorf("2 - 1 = %d", got)
+	}
+	if got := q(s.ChangeQuantity(counted.ID, -5, nil)); got != 0 {
+		t.Errorf("never below zero: %d", got)
+	}
+	if got := q(s.ChangeQuantity(uncounted.ID, 1, nil)); got != 1 {
+		t.Errorf("an uncounted item starts at 0: %d", got)
+	}
+	if got := q(s.ChangeQuantity(counted.ID, 0, intPtr(40))); got != 40 {
+		t.Errorf("set: %d", got)
+	}
+	if _, err := s.ChangeQuantity(counted.ID, 0, intPtr(-2)); err == nil {
+		t.Error("negative set accepted")
+	}
+	if _, err := s.ChangeQuantity("missing", 1, nil); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing item: %v", err)
+	}
+	// Import keeps the existing count unless the file gives one.
+	if _, _, err := s.ImportItems([]ItemInput{{Name: "resistor", Slots: []string{"A-1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := q(s.Item(counted.ID)); got != 40 {
+		t.Errorf("import without quantity changed it to %d", got)
 	}
 }

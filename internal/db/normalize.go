@@ -19,10 +19,8 @@ const (
 	MaxSlotNumber        = 9999
 	MaxBoxSlots          = 999
 	MaxListLength        = 50 // slots, tags or aliases of one item
+	MaxQuantity          = 1_000_000
 )
-
-// Stock levels. The empty string means "not tracked".
-var stockLevels = map[string]bool{"": true, "plenty": true, "low": true, "out": true}
 
 // Slot is one compartment of a box, written "A-12".
 type Slot struct {

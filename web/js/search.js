@@ -5,14 +5,15 @@
 //   #electronic       tag, including its sub-tags; #mcu also finds electronic/mcu
 //   @A                box A
 //   -smd              exclude items mentioning "smd"
-//   is:low is:out     stock level; is:untagged, is:unplaced
+//   is:out            quantity down to 0 (the shopping list)
+//   is:untagged is:unplaced is:empty
 //   A-12              a slot: its contents come first
 // Pure functions, tested under Node (tests/js).
 
 import { normalize, words, editDistance, typoBudget, similarity } from './text.js';
 import { parseSlot, slotName, compareSlots } from './slots.js';
 
-const FLAGS = new Set(['low', 'out', 'plenty', 'untagged', 'unplaced', 'empty']);
+const FLAGS = new Set(['out', 'untagged', 'unplaced', 'empty']);
 
 // How much a match in each field counts.
 const WEIGHTS = { name: 1, alias: 0.9, tag: 0.7, description: 0.45, notes: 0.35 };
@@ -122,7 +123,7 @@ function passesFilters(idx, q) {
   if (q.boxes.length && !it.slots.some((s) => q.boxes.includes(parseSlot(s)?.box))) return false;
   if (q.excluded.some((w) => mentions(idx, w))) return false;
   for (const f of q.flags) {
-    if ((f === 'low' || f === 'out' || f === 'plenty') && it.stock !== f) return false;
+    if (f === 'out' && it.quantity !== 0) return false;
     if (f === 'untagged' && it.tags.length) return false;
     if (f === 'unplaced' && it.slots.length) return false;
   }
@@ -195,8 +196,12 @@ export function similarItems(index, name, { limit = 5, threshold = 0.42 } = {}) 
       let s = similarity(n, cand.text);
       if (cand.text.startsWith(n)) s = Math.max(s, 0.75 + 0.2 * (n.length / cand.text.length));
       if (terms.length) {
-        const avg = terms.reduce((sum, t) => sum + termScore(t, cand), 0) / terms.length;
-        s = Math.max(s, 0.85 * avg);
+        const scores = terms.map((t) => termScore(t, cand));
+        s = Math.max(s, 0.85 * (scores.reduce((a, b) => a + b, 0) / terms.length));
+        // One distinctive word matching well is enough to ask: "ESP32 clone" → ESP32-WROOM.
+        terms.forEach((t, i) => {
+          if (t.length >= 4) s = Math.max(s, 0.6 * scores[i]);
+        });
       }
       if (s > best.score) best = { score: s, exact: false, matched: original };
     }
