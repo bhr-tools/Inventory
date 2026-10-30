@@ -1,9 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- A compartment box drawn like a mechanical drawing: a thick outline, thin
+       dividers, and the slot you were looking for filled in. -->
   <rect width="512" height="512" rx="128" fill="#191724"/>
-  <g fill="none" stroke="#31748f" stroke-width="34" stroke-linejoin="round">
-    <rect x="120" y="120" width="116" height="116" rx="22"/>
-    <rect x="276" y="120" width="116" height="116" rx="22"/>
-    <rect x="120" y="276" width="116" height="116" rx="22"/>
+  <g stroke="#31748f" fill="none">
+    <rect x="112" y="112" width="288" height="288" rx="36" stroke-width="36"/>
+    <path d="M211 130 V382 M301 130 V382 M130 211 H382 M130 301 H382" stroke-width="18"/>
   </g>
-  <rect x="276" y="276" width="116" height="116" rx="22" fill="#31748f"/>
+  <rect x="318" y="228" width="56" height="56" rx="8" fill="#ebbcba"/>
 </svg>
