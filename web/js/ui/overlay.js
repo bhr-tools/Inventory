@@ -119,20 +119,34 @@ export function openMenu(anchor, items, options) {
 const modals = []; // stack, top last
 
 /**
- * Opens a modal dialog.
- *   title     header text (omit for a custom header inside `body`)
+ * Opens a modal dialog. On phones it is a page pushed from the right, closed
+ * by its back button or by swiping from the left edge.
+ *   title     header text (omit for a custom header inside `body`; '' for a
+ *             header with no title)
+ *   back      text of the close button on phones (default "Cancel" for
+ *             forms, "← Back" otherwise)
+ *   action    { label, run }: a button in the header (phones: on the right)
  *   body      element(s)
  *   footer    element(s), typically buttons
  *   dismissible  false for dialogs that must not be closed (login)
  *   onClose   called once when the modal closes
  *   onEscape  overrides what Escape does (default: close)
- * Returns { el, close }.
+ * Returns { el, close, action }.
  */
-export function openModal({ title, body, footer, className = '', dismissible = true, autofocus = true, onClose, onEscape }) {
+export function openModal({ title, back, action, body, footer, className = '', dismissible = true, autofocus = true, onClose, onEscape }) {
+  // Pages that only show something go back; forms are cancelled.
+  back ??= action || footer ? 'Cancel' : '← Back';
+  const actionButton = action
+    ? h('button', { type: 'button', class: 'modal-action', onclick: () => action.run() }, action.label)
+    : null;
   const box = h('div', { class: ['modal', className], tabIndex: -1, attrs: { role: 'dialog', 'aria-modal': 'true' } },
-    title ? h('div', { class: 'modal-header' },
+    title != null ? h('div', { class: 'modal-header' },
+      dismissible
+        ? h('button', { type: 'button', class: 'modal-close', title: 'Close (Esc)', attrs: { 'aria-label': back }, onclick: () => handle.onEscape() },
+          h('span', { class: 'close-text' }, back), icon('close'))
+        : null,
       h('h2', { class: 'modal-title' }, title),
-      dismissible ? h('button', { type: 'button', class: 'icon-button', title: 'Close (Esc)', onclick: () => handle.close() }, icon('close')) : null)
+      actionButton || (isMobile() ? h('span', { class: 'modal-spacer' }) : null))
       : null,
     h('div', { class: 'modal-body' }, body),
     footer ? h('div', { class: 'modal-footer' }, footer) : null);
@@ -140,11 +154,13 @@ export function openModal({ title, body, footer, className = '', dismissible = t
   overlay.addEventListener('mousedown', (e) => {
     if (e.target === overlay && dismissible) handle.onEscape();
   });
+  if (dismissible) swipeBack(overlay, box, () => handle.onEscape());
 
   let closed = false;
   const handle = {
     el: box,
     overlay,
+    action: actionButton,
     dismissible,
     onEscape: onEscape || (() => handle.close()),
     close() {
@@ -152,8 +168,15 @@ export function openModal({ title, body, footer, className = '', dismissible = t
       closed = true;
       closePopover();
       modals.splice(modals.indexOf(handle), 1);
-      overlay.remove();
       document.body.classList.toggle('has-modal', modals.length > 0);
+      // Phones slide the page back out; it no longer takes clicks meanwhile.
+      if (isMobile() && !reducedMotion.matches) {
+        overlay.classList.remove('open');
+        overlay.style.pointerEvents = 'none';
+        setTimeout(() => overlay.remove(), 240);
+      } else {
+        overlay.remove();
+      }
       onClose?.();
     },
   };
@@ -166,6 +189,38 @@ export function openModal({ title, body, footer, className = '', dismissible = t
   else box.focus({ preventScroll: true });
   requestAnimationFrame(() => overlay.classList.add('open'));
   return handle;
+}
+
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+/** Phones: dragging a page from the left edge to the right goes back. */
+function swipeBack(overlay, box, goBack) {
+  let start = null;
+  overlay.addEventListener('touchstart', (e) => {
+    const x = e.touches[0].clientX;
+    if (!isMobile() || e.touches.length > 1 || x > 24) return;
+    start = { x, y: e.touches[0].clientY, dx: 0 };
+  }, { passive: true });
+  overlay.addEventListener('touchmove', (e) => {
+    if (!start) return;
+    start.dx = Math.max(0, e.touches[0].clientX - start.x);
+    if (Math.abs(e.touches[0].clientY - start.y) > 40 && start.dx < 20) {
+      start = null;
+      return;
+    }
+    overlay.classList.add('dragging');
+    box.style.transform = `translateX(${start.dx}px)`;
+  }, { passive: true });
+  const end = () => {
+    if (!start) return;
+    const { dx } = start;
+    start = null;
+    overlay.classList.remove('dragging');
+    box.style.transform = '';
+    if (dx > 90) goBack();
+  };
+  overlay.addEventListener('touchend', end, { passive: true });
+  overlay.addEventListener('touchcancel', end, { passive: true });
 }
 
 export function topModal() {

@@ -1,55 +1,39 @@
-/* Rosé Pine palette (https://rosepinetheme.com): Moon for dark mode,
-   Dawn for light mode, following the system setting. */
+/* Rosé Pine (https://rosepinetheme.com): Dawn in light mode, Moon in dark
+   mode, following the system setting. Ink is darker than Dawn's text so the
+   rules and tables read like a printed datasheet. */
 
 :root {
-  color-scheme: dark;
-  --rp-base: #232136;
-  --rp-surface: #2a273f;
-  --rp-overlay: #393552;
-  --rp-muted: #6e6a86;
-  --rp-subtle: #908caa;
-  --rp-text: #e0def4;
-  --rp-love: #eb6f92;
-  --rp-gold: #f6c177;
-  --rp-rose: #ea9a97;
-  --rp-pine: #3e8fb0;
-  --rp-foam: #9ccfd8;
-  --rp-iris: #c4a7e7;
-  --rp-hl-low: #2a283e;
-  --rp-hl-med: #44415a;
-  --rp-hl-high: #56526e;
-
-  /* Roles */
-  --accent: var(--rp-pine);
-  --on-accent: #e0def4;
-  --danger: var(--rp-love);
-  --border: rgba(110, 106, 134, 0.28);
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-  --backdrop: rgba(10, 9, 20, 0.6);
+  color-scheme: light;
+  --paper: #faf4ed;   /* page */
+  --sunk: #f2e9e1;    /* cursor row, pressed buttons, fields being typed in */
+  --ink: #2a2640;     /* text, 2px rules, filled buttons */
+  --muted: #6e6a86;   /* labels, secondary text */
+  --faint: #9893a5;   /* placeholders, empty values */
+  --rule: #dfdad9;    /* 1px rules between rows */
+  --accent: #286983;  /* slots, links, focus (pine) */
+  --alert: #b4637a;   /* to buy, delete, errors (love) */
+  --warn: #a8661b;    /* look-alikes, warranty ending soon (gold, darkened) */
+  --select: #907aa9;  /* multi-selection (iris) */
+  --on-ink: #faf4ed;  /* text on a filled ink surface */
+  --backdrop: rgba(42, 38, 64, 0.32);
+  --shadow: 0 18px 50px rgba(42, 38, 64, 0.18);
 }
 
-@media (prefers-color-scheme: light) {
+@media (prefers-color-scheme: dark) {
   :root {
-    color-scheme: light;
-    --rp-base: #faf4ed;
-    --rp-surface: #fffaf3;
-    --rp-overlay: #f2e9e1;
-    --rp-muted: #9893a5;
-    --rp-subtle: #797593;
-    --rp-text: #575279;
-    --rp-love: #b4637a;
-    --rp-gold: #ea9d34;
-    --rp-rose: #d7827e;
-    --rp-pine: #286983;
-    --rp-foam: #56949f;
-    --rp-iris: #907aa9;
-    --rp-hl-low: #f4ede8;
-    --rp-hl-med: #dfdad9;
-    --rp-hl-high: #cecacd;
-
-    --on-accent: #faf4ed;
-    --border: rgba(121, 117, 147, 0.25);
-    --shadow: 0 10px 30px rgba(87, 82, 121, 0.18);
-    --backdrop: rgba(87, 82, 121, 0.35);
+    color-scheme: dark;
+    --paper: #232136;
+    --sunk: #2a273f;
+    --ink: #e0def4;
+    --muted: #908caa;
+    --faint: #6e6a86;
+    --rule: #393552;
+    --accent: #9ccfd8;
+    --alert: #eb6f92;
+    --warn: #f6c177;
+    --select: #c4a7e7;
+    --on-ink: #232136;
+    --backdrop: rgba(10, 9, 20, 0.6);
+    --shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
   }
 }

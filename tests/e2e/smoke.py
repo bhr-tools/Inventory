@@ -211,8 +211,10 @@ def desktop(browser):
     page.keyboard.press("-")
     page.keyboard.press("-")
     expect(page.locator(".preview .qty-value")).to_have_text("2")
+    # x types the quantity in place, in the details.
     page.keyboard.press("x")
-    page.locator(".qty-input").fill("0")
+    expect(page.locator(".preview .qty-edit")).to_be_focused()
+    page.locator(".preview .qty-edit").fill("0")
     page.keyboard.press("Enter")
     expect(page.locator(".toast")).to_contain_text("added to the shopping list")
     expect(page.locator("#shopping-count")).to_have_text("1")
@@ -236,7 +238,7 @@ def desktop(browser):
     type_search(page, "esp")
     expect(rows(page)).to_have_count(1)
     page.locator(".shopping-actions .button.primary").click()
-    page.locator(".qty-input").fill("10")
+    page.locator(".preview .qty-edit").fill("10")
     page.keyboard.press("Enter")
     expect(page.locator(".toast")).to_contain_text("restocked (10)")
     expect(rows(page)).to_have_count(0)
@@ -245,8 +247,8 @@ def desktop(browser):
     expect(rows(page)).to_have_count(1)
     page.keyboard.press("d")
     expect(page.locator(".toast")).to_contain_text("Deleted “Arduino Nano”")
-    expect(page.locator("#shopping-count")).to_have_text("0")
-    expect(page.locator(".empty-state")).to_contain_text("nothing to buy")
+    expect(page.locator("#shopping-count")).to_have_text("")  # nothing to buy: no count
+    expect(page.locator(".empty-state")).to_contain_text("Nothing to buy")
     azerty(page, "&")
     expect(page.locator("#tab-parts")).to_have_class("tab active")
 
@@ -277,7 +279,7 @@ def desktop(browser):
     page.keyboard.press("Escape")
     azerty(page, "é")
     expect(page.locator("#tab-tools")).to_have_class("tab active")
-    expect(page.locator(".empty-state")).to_contain_text("no tool yet")
+    expect(page.locator(".empty-state")).to_contain_text("No tool yet")
     page.keyboard.press("a")
     expect(page.locator(".quick-add .modal-title")).to_have_text("Add a tool")
     qa = page.locator(".quick-input")
@@ -291,7 +293,10 @@ def desktop(browser):
     expect(page.locator(".quick-add")).to_have_count(0)
     expect(rows(page)).to_have_count(1)
     expect(rows(page).first).to_contain_text("SN 4821-77")
+    # The warranty shows in the details only.
+    expect(rows(page).first).not_to_contain_text("2027")
     expect(page.locator(".preview-title")).to_have_text("Perceuse visseuse")
+    expect(page.locator(".preview .warranty")).to_contain_text("valid")
 
     # f opens the file picker; the invoice shows in the files with its label.
     with page.expect_file_chooser() as chooser:
@@ -334,16 +339,22 @@ def desktop(browser):
     type_search(page, "SN4821")
     expect(rows(page)).to_have_count(1)
 
-    # Lost: it stays recorded, with its invoice.
+    # Broken, lost, sold: archived. It leaves the list and stays recorded with its invoice.
     page.keyboard.press("Escape")
-    page.keyboard.press("e")
-    expect(page.locator(".editor-modal .modal-title")).to_have_text("Edit tool")
-    page.locator(".editor select").nth(1).select_option("lost")
-    page.keyboard.press("Control+Enter")
-    expect(page.locator(".toast")).to_contain_text("Saved")
-    type_search(page, "is:lost")
+    page.keyboard.press("A")
+    expect(page.locator(".toast")).to_contain_text("Archived “Perceuse visseuse”")
+    expect(page.locator(".empty-state")).to_contain_text("1 archived")
+    type_search(page, "")
+    page.keyboard.press("Escape")
+    expect(rows(page)).to_have_count(0)
+    expect(page.locator(".list-note")).to_contain_text("1 archived tool hidden")
+    page.locator(".list-note .button").click()
+    expect(page.locator(".archive-banner")).to_be_visible()
     expect(rows(page)).to_have_count(1)
-    expect(rows(page).first.locator(".status")).to_have_text("lost")
+    expect(page.locator(".preview .kicker")).to_contain_text("archived")
+    shot(page, "16a-archive")
+    type_search(page, "is:archived")
+    expect(rows(page)).to_have_count(1)
 
     # Deleting the tool and undoing keeps its files.
     page.keyboard.press("Escape")
@@ -352,8 +363,14 @@ def desktop(browser):
     page.keyboard.press("u")
     expect(rows(page)).to_have_count(1)
     expect(page.locator(".preview .file-row")).to_have_count(2)
+
+    # Restored: back with the tools in use.
+    page.keyboard.press("A")
+    expect(page.locator(".toast")).to_contain_text("Restored")
     type_search(page, "")
     page.keyboard.press("Escape")
+    page.locator(".archive-banner .button").click()
+    expect(rows(page)).to_have_count(1)
     azerty(page, "&")
 
     page.keyboard.press("?")
@@ -384,7 +401,7 @@ def phone(browser, state):
     page.goto(BASE)
     expect(rows(page)).not_to_have_count(0)
     # iOS 26 blurs the top of the page unless an opaque sticky element touches it.
-    assert page.locator(".topbar").evaluate("e => getComputedStyle(e).position") == "sticky"
+    assert page.locator(".masthead").evaluate("e => getComputedStyle(e).position") == "sticky"
     shot(page, "11-phone-list")
 
     # The details open full screen and follow every change: + tapped twice shows 12.
@@ -394,7 +411,7 @@ def phone(browser, state):
     expect(sheet).to_be_visible()
     box = sheet.bounding_box()
     assert box["y"] == 0 and box["height"] == 844, box
-    expect(sheet.locator(".modal-title")).to_have_text("ESP32-WROOM")
+    expect(sheet.locator(".preview-title")).to_have_text("ESP32-WROOM")
     plus = sheet.locator(".qty-step").nth(1)
     expect(sheet.locator(".qty-value")).to_have_text("10")
     plus.tap()
@@ -403,28 +420,46 @@ def phone(browser, state):
     sheet.locator(".qty-step").first.tap()
     expect(sheet.locator(".qty-value")).to_have_text("11")
     shot(page, "12-phone-preview")
-    # Typing the quantity: the dialog stacks on the sheet, which updates once it closes.
+    # Typing the quantity: the number turns into a field, in place.
     sheet.locator(".qty-value").tap()
-    page.locator(".qty-input").fill("0")
-    page.locator(".modal-footer .button.primary").tap()
-    expect(sheet.locator(".qty-note")).to_have_text("to buy")
-    sheet.locator(".modal-header .icon-button").tap()
-    expect(sheet).to_have_count(0)
+    expect(sheet.locator(".qty-edit")).to_be_focused()
+    sheet.locator(".qty-edit").fill("0")
+    page.keyboard.press("Enter")
+    expect(sheet.locator(".qty-note")).to_contain_text("On the shopping list")
 
-    # Quick Add: the field sits at the top of a full-screen page.
+    # Move on the map of the box: tap a free slot, then confirm.
+    sheet.locator(".spec .button", has_text="Move").tap()
+    page.locator(".map-cell.free").first.tap()
+    page.locator(".map-confirm .button").tap()
+    expect(page.locator(".toast")).to_contain_text("Moved “ESP32-WROOM” to B-1")
+    expect(sheet.locator(".ds-sub")).to_contain_text("B-1")
+    sheet.locator(".modal-close").tap()
+    expect(page.locator(".preview-sheet")).to_have_count(0)
+
+    # Adding: a short form. The name warns about look-alikes; a free slot is picked.
     type_search(page, "")
-    page.locator("#fab").tap()
-    qa = page.locator(".quick-input")
-    expect(qa).to_be_focused()
-    assert qa.bounding_box()["y"] < 120, qa.bounding_box()
-    qa.type("ESP32 clone")
-    expect(page.locator(".quick-suggestions .complete-item").first).to_contain_text("ESP32-WROOM")
-    shot(page, "13-phone-quickadd")
-    page.locator(".quick-add .modal-header .icon-button").tap()
+    page.locator("#tab-add").tap()
+    form = page.locator(".add-modal")
+    name = form.locator(".add-form input").first
+    expect(name).to_be_focused()
+    name.type("ESP32 clone")
+    expect(form.locator(".look-alike").first).to_contain_text("ESP32-WROOM")
+    shot(page, "13-phone-add")
+    name.fill("Câble dupont")
+    form.locator(".pick", has_text="Box B").tap()
+    expect(form.locator(".pick.active", has_text="B-")).to_have_text("■ B-10")  # box B has no size: the next number after B-9
+    form.locator(".stepper button").nth(1).tap()
+    form.locator(".modal-action").tap()
+    sheet = page.locator(".preview-sheet")
+    expect(sheet.locator(".preview-title")).to_have_text("Câble dupont")
+    expect(sheet.locator(".qty-value")).to_have_text("2")
+    expect(sheet.locator(".ds-sub")).to_contain_text("B-10")
+    sheet.locator(".modal-close").tap()
 
     # Box grid by touch: tap A-11, "swap", then tap A-14.
     page.locator("#more-button").tap()
     page.locator(".menu-item", has_text="Boxes").tap()
+    page.locator(".grid-tab", has_text="A").tap()
     page.locator(".grid .cell").nth(10).tap()
     page.locator(".grid-actions .button.primary").tap()
     expect(page.locator(".grid-hint")).to_contain_text("swap A-11 with")
@@ -434,7 +469,7 @@ def phone(browser, state):
     shot(page, "14-phone-grid")
 
     # Tools on the phone: the sheet takes a file from the picker and shows it at once.
-    page.locator(".modal-header .icon-button").last.tap()
+    page.locator(".modal-close").last.tap()
     page.locator("#tab-tools").tap()
     rows(page).first.tap()
     sheet = page.locator(".preview-sheet")
@@ -452,7 +487,13 @@ with sync_playwright() as p:
     browser = p.chromium.launch()
     try:
         state = desktop(browser)
-        phone(browser, state)
+        try:
+            phone(browser, state)
+        except Exception:
+            for ctx in browser.contexts:
+                for pg in ctx.pages:
+                    pg.screenshot(path=f"{OUT}/failure.png")
+            raise
     finally:
         browser.close()
 

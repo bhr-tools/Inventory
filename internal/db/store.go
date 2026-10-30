@@ -180,6 +180,10 @@ var migrations = []string{
 		orphaned_at TEXT NOT NULL DEFAULT ''
 	);
 	CREATE INDEX idx_attachments_item ON attachments(item_id);`,
+
+	// 5: broken and lost tools become archived, one state for every tool that
+	// is gone but kept on record.
+	`UPDATE items SET status = 'archived' WHERE status <> '';`,
 }
 
 func (s *Store) migrate() error {

@@ -7,7 +7,7 @@
 //   -smd              exclude items mentioning "smd"
 //   is:out            quantity 0; is:tobuy  on the shopping list
 //   is:untagged is:unplaced is:empty
-//   is:tool is:part   one kind; is:lost is:broken  tool status
+//   is:tool is:part   one kind; is:archived  tools gone (broken, lost, sold)
 //   is:warranty       tools still under warranty; has:file  with attachments
 // Tools are also found by brand, reference and serial number (exact or prefix,
 // never fuzzy: a serial one character off is another tool), and any item by
@@ -18,7 +18,7 @@
 import { normalize, words, editDistance, typoBudget, similarity } from './text.js';
 import { parseSlot, slotName, compareSlots } from './slots.js';
 
-const FLAGS = new Set(['out', 'tobuy', 'untagged', 'unplaced', 'empty', 'tool', 'part', 'lost', 'broken', 'warranty']);
+const FLAGS = new Set(['out', 'tobuy', 'untagged', 'unplaced', 'empty', 'tool', 'part', 'archived', 'warranty']);
 
 // How much a match in each field counts.
 const WEIGHTS = { name: 1, serial: 1, model: 0.9, alias: 0.9, brand: 0.8, tag: 0.7, file: 0.5, description: 0.45, notes: 0.35 };
@@ -157,7 +157,7 @@ function passesFilters(idx, q) {
     if (f === 'untagged' && it.tags.length) return false;
     if (f === 'unplaced' && it.slots.length) return false;
     if ((f === 'tool' || f === 'part') && (it.kind || 'part') !== f) return false;
-    if ((f === 'lost' || f === 'broken') && it.status !== f) return false;
+    if (f === 'archived' && it.status !== 'archived') return false;
     if (f === 'warranty' && !(it.warranty_until && it.warranty_until >= q.today)) return false;
     if (f === 'file' && !(it.attachments || []).length) return false;
   }

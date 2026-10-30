@@ -139,8 +139,8 @@ test('tools: brand, reference, serial, files and filters', () => {
   const tools = [
     item('Perceuse visseuse', { kind: 'tool', brand: 'Makita', model: 'DHP482', serial: 'SN 4821-77', warranty_until: '2027-03-31',
       attachments: [{ id: 'a', filename: 'Facture Leroy Merlin.pdf' }] }),
-    item('Multimètre', { kind: 'tool', brand: 'Fluke', model: '117', serial: 'FL117-0042', status: 'lost', warranty_until: '2024-01-31' }),
-    item('Fer à souder', { kind: 'tool', brand: 'Pinecil', status: 'broken' }),
+    item('Multimètre', { kind: 'tool', brand: 'Fluke', model: '117', serial: 'FL117-0042', status: 'archived', warranty_until: '2024-01-31' }),
+    item('Fer à souder', { kind: 'tool', brand: 'Pinecil' }),
     item('Vis M3x10', { slots: ['C-1'] }),
   ];
   const idx = tools.map(indexItem);
@@ -154,8 +154,7 @@ test('tools: brand, reference, serial, files and filters', () => {
   assert.deepEqual(find('leroy'), ['Perceuse visseuse']);          // attachment file name
   assert.deepEqual(find('is:tool').length, 3);
   assert.deepEqual(find('is:part'), ['Vis M3x10']);
-  assert.deepEqual(find('is:lost'), ['Multimètre']);
-  assert.deepEqual(find('is:broken'), ['Fer à souder']);
+  assert.deepEqual(find('is:archived'), ['Multimètre']);
   assert.deepEqual(find('is:warranty'), ['Perceuse visseuse']);    // Fluke's ended in 2024
   assert.deepEqual(find('has:file'), ['Perceuse visseuse']);
 });

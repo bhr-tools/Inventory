@@ -2,7 +2,7 @@
 // the details, opened through their signed link (which also works in the
 // viewer iOS opens from a home screen app), renamed, relabelled or deleted.
 
-import { h } from '../dom.js';
+import { h, isMobile } from '../dom.js';
 import { promptDialog, openMenu, toast } from '../ui/overlay.js';
 import { api } from '../api.js';
 
@@ -23,19 +23,21 @@ export function filesSection(app, item) {
     app.putItem(updated);
     app.done(message, undo);
   };
-  const rows = files.map((f) => h('div', { class: 'file-row' },
-    h('button', {
-      type: 'button',
-      class: ['file-label', f.label || 'other'],
-      title: 'Change the label',
-      onclick: (e) => openMenu(e.currentTarget, LABELS.map((l) => ({
-        label: l || 'other',
-        selected: l === f.label,
-        run: () => change(() => api.attachments.relabel(f.id, l), `${f.filename}: ${l || 'other'}`,
-          () => api.attachments.relabel(f.id, f.label)),
-      }))),
-    }, f.label || 'other'),
-    h('a', { class: 'file-name', href: f.url, target: '_blank', rel: 'noopener', title: f.filename }, f.filename),
+  const rows = files.map((f, i) => h('div', { class: 'file-row' },
+    h('span', { class: 'file-index' }, String(i + 1).padStart(2, '0')),
+    h('span', { class: 'file-main' },
+      h('button', {
+        type: 'button',
+        class: ['file-label', f.label || 'other'],
+        title: 'Change the label',
+        onclick: (e) => openMenu(e.currentTarget, LABELS.map((l) => ({
+          label: l || 'other',
+          selected: l === f.label,
+          run: () => change(() => api.attachments.relabel(f.id, l), `${f.filename}: ${l || 'other'}`,
+            () => api.attachments.relabel(f.id, f.label)),
+        })), { title: 'Label' }),
+      }, f.label || 'other'),
+      h('a', { class: 'file-name', href: f.url, target: '_blank', rel: 'noopener', title: f.filename }, f.filename)),
     h('span', { class: 'file-meta' }, formatSize(f.size)),
     h('button', {
       type: 'button',
@@ -47,18 +49,23 @@ export function filesSection(app, item) {
           change(() => api.attachments.rename(f.id, name), `renamed to ${name}`, () => api.attachments.rename(f.id, f.filename));
         }
       },
-    }, 'ren'),
+    }, 'rename'),
     h('button', {
       type: 'button',
       class: 'file-action danger',
       title: 'Delete',
+      attrs: { 'aria-label': `Delete ${f.filename}` },
       onclick: () => change(() => api.attachments.remove(f.id), `deleted ${f.filename}`, () => api.attachments.restore(f.id)),
-    }, 'del')));
-  return h('section', { class: 'preview-section files' },
-    h('h3', null, `files (${files.length})`),
+    }, '×')));
+  const empty = item.kind === 'tool'
+    ? 'No invoice yet. Attach it now, so you have it the day the tool breaks.'
+    : 'No datasheet or pinout attached.';
+  return h('section', { class: 'ds-section files' },
+    h('h3', { class: 'ds-head' }, h('span', null, 'Documents'), h('span', { class: 'aside' }, files.length ? String(files.length) : '')),
     rows,
+    files.length ? null : h('p', { class: 'ds-note' }, empty),
     h('button', { type: 'button', class: 'drop-zone', onclick: () => app.pickFiles(item) },
-      files.length ? '+ attach, or drop files here' : 'no file yet. attach an invoice or a manual, or drop files here'));
+      isMobile() ? 'Attach a document' : 'Attach a document, or drop files here'));
 }
 
 /**

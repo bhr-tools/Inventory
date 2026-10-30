@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -77,6 +78,12 @@ func main() {
 }
 
 // newHandler routes the API, the health check and the web app.
+func init() {
+	// Not in Go's built-in table: without it, the fonts would depend on the
+	// host's mime.types (and nosniff makes browsers trust the header).
+	_ = mime.AddExtensionType(".woff2", "font/woff2")
+}
+
 func newHandler(store *db.Store, noAuth bool) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", api.New(store, noAuth).Handler())

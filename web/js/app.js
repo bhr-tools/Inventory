@@ -15,6 +15,8 @@ import { openGrid } from './views/grid.js';
 import { openTags } from './views/tags.js';
 import { openHelp } from './views/help.js';
 import { filesSection, uploadFiles } from './views/files.js';
+import { openAddForm } from './views/addform.js';
+import { openSlotMap } from './views/slotmap.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_ROWS = 300;
@@ -33,7 +35,12 @@ class App {
     this.query = params.get('q') || '';
     // 'parts', 'tools' (the register), or 'shopping': the parts whose quantity dropped to 0.
     this.view = VIEWS.includes(params.get('view')) ? params.get('view') : 'parts';
-    this.elsewhere = null; // { view, count }: matches in the other kind, when this tab has none
+    // Tools tab: the archived tools (broken, lost, sold) instead of those in use.
+    this.archived = this.view === 'tools' && params.get('archived') === '1';
+    // { view, count } or { archived, count }: matches elsewhere, when this list has none.
+    this.elsewhere = null;
+    this.grouped = false; // the parts list shows box headings (no words searched)
+    this.editingQty = null; // item id whose quantity is being typed in the details
     this.pendingQuantity = new Map(); // item id → requests in flight
     this.sheet = null; // phones: the full-screen details, { modal, body, row }
     this.rows = []; // { kind: 'item', item } | { kind: 'empty', slot }
@@ -47,21 +54,21 @@ class App {
   async boot() {
     this.search = $('search');
     this.search.value = this.query;
-    if (isMobile()) this.search.placeholder = 'Part, A-12, #tag…';
     this.search.addEventListener('input', () => this.setQuery(this.search.value, { keepInput: true }));
     this.search.addEventListener('keydown', (e) => this.searchKey(e));
-    $('add-button').append(icon('plus'));
+    $('search-clear').addEventListener('click', () => {
+      this.setQuery('');
+      this.search.focus();
+    });
     $('add-button').addEventListener('click', () => this.quickAdd());
-    $('fab').append(icon('plus'));
-    $('fab').addEventListener('click', () => this.quickAdd());
+    $('tab-add').addEventListener('click', () => this.quickAdd());
     $('more-button').append(icon('more'));
     $('more-button').addEventListener('click', (e) => this.openMoreMenu(e.currentTarget));
-    $('brand').prepend(icon('brandLogo'));
-    $('search-icon').append(icon('search'));
     $('status-help').addEventListener('click', () => openHelp());
-    for (const v of VIEWS) $(`tab-${v}`).addEventListener('click', () => this.setView(v));
+    for (const v of VIEWS) {
+      $(`tab-${v}`).addEventListener('click', () => (v === 'tools' && this.archived ? this.setArchived(false) : this.setView(v)));
+    }
     this.initDrop();
-    $('tab-shopping').addEventListener('click', () => this.setView('shopping'));
     onUnauthorized(() => this.showLogin());
     initKeys(this);
 
@@ -146,6 +153,18 @@ class App {
   setView(view) {
     if (view === this.view) return;
     this.view = view;
+    this.archived = false;
+    this.selected.clear();
+    this.syncURL();
+    this.runSearch();
+    this.cursor = 0;
+    this.render();
+  }
+
+  /** Tools tab: shows the archived tools, or those in use. */
+  setArchived(on) {
+    this.view = 'tools';
+    this.archived = on;
     this.selected.clear();
     this.syncURL();
     this.runSearch();
@@ -160,6 +179,8 @@ class App {
     else url.searchParams.delete('q');
     if (this.view !== 'parts') url.searchParams.set('view', this.view);
     else url.searchParams.delete('view');
+    if (this.archived) url.searchParams.set('archived', '1');
+    else url.searchParams.delete('archived');
     history.replaceState(null, '', url);
   }
 
@@ -167,6 +188,7 @@ class App {
     const q = parseQuery(this.query);
     this.slotBanner = null;
     this.elsewhere = null;
+    this.grouped = this.view === 'parts' && !q.terms.length;
     if (this.view === 'shopping') {
       this.rows = search(this.index, q).hits
         .filter((hit) => hit.item.to_buy)
@@ -179,12 +201,17 @@ class App {
     }
     const { slot, hits } = search(this.index, q);
     const kind = this.view === 'tools' ? 'tool' : 'part';
-    this.rows = hits.filter((hit) => itemKind(hit.item) === kind)
+    // Archived tools only show in their own list, or when asked for (is:archived).
+    const archived = kind === 'tool' && (this.archived || q.flags.includes('archived'));
+    const shown = (it) => itemKind(it) === kind && (kind === 'part' || isArchived(it) === archived);
+    this.rows = hits.filter((hit) => shown(hit.item))
       .map((hit) => ({ kind: 'item', item: hit.item, inSlot: hit.inSlot }));
-    // Nothing here but something in the other tab: say so rather than "no match".
+    // Nothing here but something in the other list: say so rather than "no match".
     if (!this.rows.length && this.query.trim()) {
-      const count = hits.length;
-      if (count) this.elsewhere = { view: kind === 'tool' ? 'parts' : 'tools', count };
+      const other = hits.filter((hit) => itemKind(hit.item) === 'tool' && isArchived(hit.item) !== archived).length;
+      const count = hits.filter((hit) => itemKind(hit.item) !== kind).length;
+      if (kind === 'tool' && other) this.elsewhere = { archived: !archived, count: other };
+      else if (count) this.elsewhere = { view: kind === 'tool' ? 'parts' : 'tools', count };
     }
     if (kind === 'tool') return;
     // "M3" parses as a slot, but only means one when box M exists or the dash was typed.
@@ -236,6 +263,11 @@ class App {
   renderList() {
     const list = clear($('results'));
     const terms = parseQuery(this.query).terms;
+    if (this.view === 'tools' && this.archived) {
+      list.append(h('div', { class: 'archive-banner' },
+        h('p', null, h('strong', null, 'Archived tools'), 'Broken, lost or sold: kept with their serial number and files.'),
+        h('button', { type: 'button', class: 'button', onclick: () => this.setArchived(false) }, '← Tools in use')));
+    }
     if (this.slotBanner) {
       const { slot, count } = this.slotBanner;
       list.append(h('div', { class: 'slot-banner' },
@@ -245,37 +277,74 @@ class App {
     }
     if (!this.rows.length && this.view === 'shopping') {
       list.append(h('div', { class: 'empty-state' }, this.query
-        ? 'no match in the shopping list'
-        : h('span', null, 'nothing to buy. an item lands here when its quantity drops to 0 (', h('kbd', null, '-'), ').')));
+        ? 'No match in the shopping list.'
+        : 'Nothing to buy. A part lands here when its quantity drops to 0.'));
       return;
     }
     if (!this.rows.length && this.elsewhere) {
-      const { view, count } = this.elsewhere;
-      list.append(h('div', { class: 'empty-state' }, `no match in ${this.view}. `,
-        h('button', { type: 'button', class: 'link-button', onclick: () => this.setView(view) },
-          `${count} in ${view}`), ' →'));
+      const { view, archived, count } = this.elsewhere;
+      const here = this.view === 'tools' ? (this.archived ? 'the archive' : 'tools in use') : this.view;
+      list.append(h('div', { class: 'empty-state' }, `No match in ${here}. `,
+        view
+          ? h('button', { type: 'button', class: 'link-button', onclick: () => this.setView(view) }, `${count} in ${view} →`)
+          : h('button', { type: 'button', class: 'link-button', onclick: () => this.setArchived(archived) },
+            `${count} ${archived ? 'archived' : 'in use'} →`)));
       return;
     }
     if (!this.rows.length) {
-      const what = this.view === 'tools' ? 'tool' : 'part';
-      const anyOfKind = this.items.some((it) => itemKind(it) === (this.view === 'tools' ? 'tool' : 'part'));
-      list.append(h('div', { class: 'empty-state' }, anyOfKind
-        ? (this.slotBanner ? null : `no match. try fewer words, a tag (#…)${this.view === 'tools' ? ' or a serial number' : ' or a box (@A)'}.`)
-        : h('span', null, `no ${what} yet. press `, h('kbd', null, 'a'), ` to add one.`)));
+      const tools = this.view === 'tools';
+      const anyOfKind = this.items.some((it) => itemKind(it) === (tools ? 'tool' : 'part') && (!tools || isArchived(it) === this.archived));
+      let text;
+      if (anyOfKind) text = this.slotBanner ? null : `No match. Try fewer words, a tag (#…)${tools ? ' or a serial number' : ' or a box (@A)'}.`;
+      else if (tools && this.archived) text = 'No archived tool. Archive a tool from its details when it is broken, lost or sold.';
+      else text = `No ${tools ? 'tool' : 'part'} yet. Add one with + Add.`;
+      list.append(h('div', { class: 'empty-state' }, text,
+        this.query.trim() && !this.slotBanner && !(tools && this.archived)
+          ? [' ', h('button', { type: 'button', class: 'link-button', onclick: () => this.quickAdd(this.query.trim()) }, `Add “${this.query.trim()}”`)]
+          : null));
+      this.archivedNote(list);
       return;
     }
     list.append(this.view === 'tools'
       ? h('div', { class: 'row tool-row thead', attrs: { 'aria-hidden': 'true' } },
-        h('span', { class: 'row-mark' }), h('span', null, 'name'), h('span', null, 'brand · ref'),
-        h('span', null, 'serial'), h('span', null, 'warranty'), h('span', { class: 'num' }, 'files'))
+        h('span', { class: 'row-mark' }), h('span', null, 'Tool'), h('span', null, 'Brand · reference'),
+        h('span', null, 'Serial no.'), h('span', { class: 'num' }, 'Docs'))
       : h('div', { class: 'row thead', attrs: { 'aria-hidden': 'true' } },
-        h('span', { class: 'row-mark' }), h('span', null, 'slot'), h('span', { class: 'num' }, 'qty'),
-        h('span', null, 'name'), h('span', null, 'tags')));
-    this.rows.slice(0, MAX_ROWS).forEach((row, i) => list.append(this.renderRow(row, i, terms)));
+        h('span', { class: 'row-mark' }), h('span', null, 'Slot'), h('span', null, 'Description'),
+        h('span', null, 'Tags'), h('span', { class: 'num' }, 'Qty')));
+    let box;
+    this.rows.slice(0, MAX_ROWS).forEach((row, i) => {
+      if (this.grouped) {
+        const b = parseSlot(row.kind === 'empty' ? row.slot : row.item.slots[0] || '')?.box || '';
+        if (b !== box) list.append(this.boxHead((box = b)));
+      }
+      list.append(this.renderRow(row, i, terms));
+    });
     if (this.rows.length > MAX_ROWS) {
       list.append(h('div', { class: 'more-rows' }, `${this.rows.length - MAX_ROWS} more rows: refine the search`));
     }
+    this.archivedNote(list);
     list.querySelector('.row.cursor')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  /** Under the tools in use: how many are archived, and the way to them. */
+  archivedNote(list) {
+    if (this.view !== 'tools' || this.archived || this.query.trim()) return;
+    const count = this.items.filter(isArchived).length;
+    if (!count) return;
+    list.append(h('div', { class: 'list-note' },
+      h('span', null, `${count} archived tool${count === 1 ? '' : 's'} hidden: broken, lost or sold.`),
+      h('button', { type: 'button', class: 'button', onclick: () => this.setArchived(true) }, 'Show archived')));
+  }
+
+  /** "BOX A — 24 slots · 15 free" above the parts of a box. */
+  boxHead(box) {
+    if (!box) return h('div', { class: 'box-head' }, h('span', null, 'No slot'));
+    const config = this.boxes.find((b) => b.id === box);
+    const used = [...this.slotMap.keys()].filter((s) => parseSlot(s)?.box === box).length;
+    return h('div', { class: 'box-head' },
+      h('span', null, `Box ${box}`),
+      h('span', { class: 'box-meta' }, config?.slots ? `${config.slots} slots · ${Math.max(0, config.slots - used)} free` : `${used} used`));
   }
 
   renderRow(row, i, terms) {
@@ -288,25 +357,27 @@ class App {
       return h('div', { class: ['row', 'row-empty', i === this.cursor && 'cursor'], onclick, ondblclick: () => this.quickAdd(`${row.slot} `) },
         h('span', { class: 'row-mark' }),
         h('span', { class: 'row-slot' }, row.slot),
-        h('span', { class: 'row-qty num' }, ''),
         h('span', { class: 'row-name' }, '(empty)'),
-        h('span', { class: 'row-tags' }));
+        h('span', { class: 'row-tags' }),
+        h('span', { class: 'row-qty num' }, ''));
     }
     const it = row.item;
     if (itemKind(it) === 'tool') {
+      const ref = [it.brand, it.model].filter(Boolean).join(' ');
+      const files = it.attachments?.length || 0;
       return h('div', {
-        class: ['row', 'tool-row', i === this.cursor && 'cursor', this.selected.has(it.id) && 'selected', it.status && 'retired'],
+        class: ['row', 'tool-row', i === this.cursor && 'cursor', this.selected.has(it.id) && 'selected'],
         dataset: { id: it.id },
         onclick,
         ondblclick: () => this.edit(it),
       },
       h('span', { class: 'row-mark' }),
       h('span', { class: 'row-name-cell' }, highlighted('row-name', it.name, terms),
-        it.status ? h('span', { class: ['status', it.status] }, it.status) : null),
-      h('span', { class: 'row-brand' }, [it.brand, it.model].filter(Boolean).join(' ') || '—'),
+        // Phones show one column: the reference and the documents go under the name.
+        h('span', { class: 'row-sub' }, [ref, files ? `${files} doc${files === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ') || '—')),
+      h('span', { class: 'row-brand' }, ref || '—'),
       h('span', { class: 'row-serial' }, it.serial || '—'),
-      warrantyCell(it),
-      h('span', { class: ['row-files', 'num', !it.attachments?.length && 'none'] }, String(it.attachments?.length || 0)));
+      h('span', { class: ['row-files', 'num', !files && 'none'] }, files ? String(files) : '—'));
     }
     return h('div', {
       class: ['row', i === this.cursor && 'cursor', this.selected.has(it.id) && 'selected', row.inSlot && 'in-slot'],
@@ -317,9 +388,9 @@ class App {
     h('span', { class: 'row-mark' }),
     h('span', { class: ['row-slot', !it.slots.length && 'none'], title: it.slots.join(' ') },
       it.slots[0] || '—', it.slots.length > 1 ? h('span', { class: 'more' }, ` +${it.slots.length - 1}`) : null),
-    h('span', { class: ['row-qty', 'num', quantityClass(it)] }, String(it.quantity)),
     highlighted('row-name', it.name, terms),
-    h('span', { class: 'row-tags' }, it.tags.join(' ')));
+    h('span', { class: 'row-tags' }, it.tags.join(' ')),
+    h('span', { class: ['row-qty', 'num', quantityClass(it)] }, String(it.quantity)));
   }
 
   renderPreview() {
@@ -328,73 +399,142 @@ class App {
     this.renderSheet();
   }
 
-  /** The details of the cursor row, as a key/value sheet, for the side pane or the phone sheet. */
+  /**
+   * The details of the cursor row as a datasheet (kicker, name, stock,
+   * specification, documents, actions), for the side pane or the phone page.
+   */
   previewContent(row = this.cursorRow()) {
-    if (!row) return h('div', { class: 'preview-empty' }, this.items.length ? 'no item selected' : '');
-    const field = (key, ...value) => [h('dt', null, key), h('dd', null, ...value)];
+    if (!row) return h('div', { class: 'preview-empty' }, this.items.length ? 'Nothing selected.' : '');
     const action = (key, label, run, className) => h('button', { type: 'button', class: ['button', className], onclick: run }, h('kbd', null, key), label);
+    const section = (title, aside, ...content) => h('section', { class: 'ds-section' },
+      h('h3', { class: 'ds-head' }, h('span', null, title), aside ? h('span', { class: 'aside' }, aside) : null),
+      ...content);
+    const pair = (key, value, extra = null) => [
+      h('dt', null, key),
+      h('dd', { class: extra ? null : 'wide' }, value),
+      extra ? h('dd', { class: 'spec-action' }, extra) : null,
+    ];
+    const none = () => h('span', { class: 'muted' }, '—');
     if (row.kind === 'empty') {
       return h('div', { class: 'preview-body' },
+        h('div', { class: 'kicker' }, h('span', null, 'Slot'), h('span', { class: 'state' }, '○ free')),
         h('h2', { class: 'preview-title' }, row.slot),
-        h('dl', { class: 'sheet' }, field('status', h('span', { class: 'muted' }, 'empty'))),
-        h('div', { class: 'preview-actions' }, action('a', 'add here', () => this.quickAdd(`${row.slot} `))),
+        h('div', { class: 'preview-actions' }, action('a', 'add here', () => this.quickAdd(`${row.slot} `), 'primary')),
         this.neighbours(row.slot));
     }
     const it = row.item;
     const link = (text, query, className) => h('button', { type: 'button', class: ['link-button', className], onclick: () => { closeAllModals(); this.setQuery(query); } }, text);
-    const date = (iso) => (iso || '').slice(0, 10);
+    const common = [
+      it.tags.length ? pair('Tags', it.tags.map((t) => link(t, `#${t}`, 'tag'))) : null,
+      it.aliases.length ? pair('Also known as', h('span', { class: 'alias' }, it.aliases.join(', '))) : null,
+      it.description ? pair('Description', h('span', { class: 'text' }, it.description)) : null,
+      it.notes ? pair('Notes', h('span', { class: 'text' }, it.notes)) : null,
+      pair('Updated', h('span', { class: 'muted mono' }, (it.updated_at || '').slice(0, 10))),
+    ];
+    const kicker = (kind, state, className) => h('div', { class: 'kicker' },
+      h('span', null, [kind, it.tags[0]].filter(Boolean).join(' · ')),
+      h('span', { class: ['state', className] }, state));
+
     if (itemKind(it) === 'tool') {
-      const w = warranty(it);
+      const archived = isArchived(it);
+      const ref = [it.brand, it.model].filter(Boolean).join(' ');
+      const w = it.warranty_until ? warrantyState(it.warranty_until) : null;
       return h('div', { class: 'preview-body' },
+        kicker('Tool', archived ? '■ archived' : '● in use', archived && 'archived'),
         h('h2', { class: 'preview-title' }, it.name),
-        h('dl', { class: 'sheet' },
-          field('brand', it.brand || h('span', { class: 'muted' }, '—')),
-          field('ref', it.model ? h('span', { class: 'copyable' }, it.model) : h('span', { class: 'muted' }, '—')),
-          field('serial', it.serial ? h('span', { class: 'copyable serial' }, it.serial) : h('span', { class: 'muted' }, '—')),
-          field('warranty', it.warranty_until
-            ? h('span', { class: ['warranty', w] }, `${it.warranty_until} (${w === 'valid' ? 'valid' : 'expired'})`)
-            : h('span', { class: 'muted' }, '—')),
-          field('status', h('span', { class: ['status', it.status || 'ok'] }, it.status || 'in use')),
-          it.tags.length ? field('tags', it.tags.map((t) => link(t, `#${t}`, 'tag'))) : null,
-          it.aliases.length ? field('aka', h('span', { class: 'alias' }, it.aliases.join(', '))) : null,
-          it.description ? field('desc', h('span', { class: 'text' }, it.description)) : null,
-          it.notes ? field('notes', h('span', { class: 'text' }, it.notes)) : null,
-          field('updated', h('span', { class: 'muted' }, date(it.updated_at)))),
+        ref ? h('p', { class: 'ds-sub' }, ref) : null,
+        section('Specification', null, h('dl', { class: 'spec' },
+          pair('Brand', it.brand || none()),
+          pair('Reference', it.model ? h('span', { class: 'copyable mono' }, it.model) : none()),
+          pair('Serial no.', it.serial ? h('span', { class: 'copyable mono serial' }, it.serial) : none(),
+            it.serial ? h('button', { type: 'button', class: 'button small', onclick: () => this.copy(it.serial, 'Serial number copied') }, 'Copy') : null),
+          pair('Warranty', w ? [h('span', { class: 'mono' }, it.warranty_until), h('span', { class: ['warranty', w.state] }, w.text)] : none()),
+          common)),
         filesSection(this, it),
-        h('div', { class: 'preview-actions' },
-          action('e', 'edit', () => this.edit(it)),
-          action('f', 'attach file', () => this.pickFiles(it)),
-          action('d', 'delete', () => this.remove([it]), 'danger-text')));
+        // Phones: Edit is in the header and Attach above, so only the rest.
+        isMobile()
+          ? h('div', { class: 'page-actions' },
+            h('button', { type: 'button', class: 'button wide', onclick: () => this.toggleArchive(it) }, archived ? 'Restore to the tools in use' : 'Archive this tool'),
+            h('button', { type: 'button', class: 'button wide danger-text', onclick: () => this.remove([it]) }, 'Delete tool'))
+          : h('div', { class: 'preview-actions' },
+            action('e', 'edit', () => this.edit(it)),
+            action('f', 'attach', () => this.pickFiles(it)),
+            action('A', archived ? 'restore' : 'archive', () => this.toggleArchive(it)),
+            action('d', 'delete', () => this.remove([it]), 'danger-text')),
+        h('p', { class: 'ds-note' }, archived
+          ? 'Archived: out of the tools list, kept with its serial number and files.'
+          : 'Broken, lost or sold? Archive it: it leaves the list and keeps its serial number and files.'));
     }
+
     return h('div', { class: 'preview-body' },
+      kicker('Part', it.to_buy ? '▲ to buy' : it.quantity ? '● in stock' : '○ none left', it.to_buy && 'to-buy'),
       h('h2', { class: 'preview-title' }, it.name),
-      h('dl', { class: 'sheet' },
-        field('slot', it.slots.length ? it.slots.map((sl) => link(sl, sl, 'slot')) : h('span', { class: 'muted' }, 'none')),
-        field('qty', this.quantityControl(it)),
-        it.tags.length ? field('tags', it.tags.map((t) => link(t, `#${t}`, 'tag'))) : null,
-        it.aliases.length ? field('aka', h('span', { class: 'alias' }, it.aliases.join(', '))) : null,
-        it.description ? field('desc', h('span', { class: 'text' }, it.description)) : null,
-        it.notes ? field('notes', h('span', { class: 'text' }, it.notes)) : null,
-        field('updated', h('span', { class: 'muted' }, date(it.updated_at)))),
-      it.to_buy ? h('div', { class: 'preview-actions shopping-actions' },
-        action('x', 'bought: set qty', () => this.setQuantity(it), 'primary'),
-        action('d', 'won’t buy: delete', () => this.remove([it]), 'danger-text')) : null,
-      h('div', { class: 'preview-actions' },
-        action('e', 'edit', () => this.edit(it)),
-        action('m', 'move', () => this.moveTargets([it])),
-        action('s', 'swap', () => this.swap(it.slots[0])),
-        action('d', 'delete', () => this.remove([it]), 'danger-text')),
+      h('p', { class: 'ds-sub' }, [it.slots.join(', ') || 'no slot', it.aliases.join(', ')].filter(Boolean).join(' · ')),
+      section('Stock', isMobile() ? 'tap the number to type it' : 'x to type it',
+        this.quantityControl(it),
+        h('p', { class: ['qty-note', it.to_buy && 'to-buy'] }, it.to_buy
+          ? 'On the shopping list: it leaves as soon as the count is above 0.'
+          : 'At 0 the part goes to the shopping list.'),
+        it.to_buy ? h('div', { class: 'preview-actions shopping-actions' },
+          action('x', 'bought: set qty', () => this.setQuantity(it), 'primary'),
+          action('d', 'won’t buy: delete', () => this.remove([it]), 'danger-text')) : null),
+      section('Specification', null, h('dl', { class: 'spec' },
+        pair('Slot', it.slots.length ? it.slots.map((sl) => link(sl, sl, 'slot')) : none(),
+          h('button', { type: 'button', class: 'button small', onclick: () => this.moveTargets([it]) }, 'Move')),
+        common)),
       filesSection(this, it),
+      // Phones: Edit is in the header, Move by the slot (tap a used slot to swap).
+      isMobile()
+        ? h('div', { class: 'page-actions' },
+          h('button', { type: 'button', class: 'button wide danger-text', onclick: () => this.remove([it]) }, 'Delete part'))
+        : h('div', { class: 'preview-actions' },
+          action('e', 'edit', () => this.edit(it)),
+          action('m', 'move', () => this.moveTargets([it])),
+          action('s', 'swap', () => this.swap(it.slots[0])),
+          action('t', 'tags', () => this.tagTargets([it])),
+          action('d', 'delete', () => this.remove([it]), 'danger-text')),
       it.slots[0] ? this.neighbours(it.slots[0], it) : null);
   }
 
-  /** [−] 12 [+]: the number itself opens a field to type it. */
+  /** [−] 12 [+]: the number itself turns into a field to type it. */
   quantityControl(it) {
-    return h('span', { class: ['quantity-control', quantityClass(it)] },
-      h('button', { type: 'button', class: 'qty-step', title: 'One less (-)', disabled: it.quantity === 0, onclick: () => this.changeQuantity(it, -1) }, '−'),
-      h('button', { type: 'button', class: 'qty-value', title: 'Set the quantity (x)', onclick: () => this.setQuantity(it) }, String(it.quantity)),
-      h('button', { type: 'button', class: 'qty-step', title: 'One more (+)', onclick: () => this.changeQuantity(it, 1) }, '+'),
-      it.to_buy ? h('span', { class: 'qty-note' }, 'to buy') : null);
+    return h('div', { class: ['quantity-control', quantityClass(it)] },
+      h('button', { type: 'button', class: 'qty-step', title: 'One less (-)', attrs: { 'aria-label': 'One less' }, disabled: it.quantity === 0, onclick: () => this.changeQuantity(it, -1) }, '−'),
+      this.editingQty === it.id
+        ? this.quantityInput(it)
+        : h('button', { type: 'button', class: 'qty-value', title: 'Type the quantity (x)', onclick: () => this.setQuantity(it) }, String(it.quantity)),
+      h('button', { type: 'button', class: 'qty-step', title: 'One more (+)', attrs: { 'aria-label': 'One more' }, onclick: () => this.changeQuantity(it, 1) }, '+'));
+  }
+
+  /** The quantity typed in place: Enter or leaving the field saves, Escape cancels. */
+  quantityInput(it) {
+    const input = h('input', {
+      type: 'number', class: 'qty-edit', min: 0, max: 1000000, step: 1, inputMode: 'numeric', value: it.quantity,
+      attrs: { 'aria-label': `Quantity of ${it.name}`, enterkeyhint: 'done' },
+    });
+    let done = false;
+    const finish = (save) => {
+      if (done) return;
+      done = true;
+      this.editingQty = null;
+      const value = Number(input.value);
+      if (save && input.value.trim() !== '' && Number.isInteger(value) && value >= 0 && value !== it.quantity) {
+        this.saveQuantity(it, value);
+      } else {
+        this.renderPreview();
+      }
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        finish(true);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(false);
+      }
+    });
+    input.addEventListener('blur', () => finish(true));
+    return input;
   }
 
   /** What else is in the slot, and what sits next to it. */
@@ -408,8 +548,8 @@ class App {
       .filter((n) => n >= 1 && (!config?.slots || n <= config.slots))
       .map((n) => slotName({ box: s.box, number: n }));
     const open = (target) => () => { closeAllModals(); this.setQuery(target); };
-    return h('section', { class: 'preview-section' },
-      h('h3', null, 'neighbours'),
+    return h('section', { class: 'ds-section' },
+      h('h3', { class: 'ds-head' }, h('span', null, 'Neighbours')),
       others.map((it) => line(slot, it.name, () => this.focusItem(it))),
       around.map((n) => line(n, slotSummary(this, n), open(n))));
   }
@@ -422,8 +562,11 @@ class App {
     const row = this.cursorRow();
     if (!row) return;
     const body = h('div', { class: 'sheet-content' });
+    const back = { parts: '← Parts', tools: this.archived ? '← Archive' : '← Tools', shopping: '← To buy' }[this.view];
     const modal = openModal({
-      title: row.kind === 'empty' ? row.slot : row.item.name,
+      title: '',
+      back,
+      action: row.kind === 'item' ? { label: 'Edit', run: () => this.edit(this.sheet?.row.item) } : null,
       className: 'preview-sheet',
       body,
       autofocus: false,
@@ -441,7 +584,6 @@ class App {
       if (!item) return this.sheet.modal.close(); // deleted
       row = { ...row, item };
       this.sheet.row = row;
-      this.sheet.modal.el.querySelector('.modal-title').textContent = item.name;
     }
     this.sheet.body.replaceChildren(this.previewContent(row));
   }
@@ -453,11 +595,36 @@ class App {
     el.className = `status-mode ${insert ? 'insert' : 'normal'}`;
     const total = this.rows.length;
     $('status-position').textContent = `${total ? this.cursor + 1 : 0} / ${total}`;
-    const toBuy = this.items.filter((it) => it.to_buy).length;
-    const pool = { shopping: toBuy, tools: this.items.filter((it) => itemKind(it) === 'tool').length };
-    $('result-count').textContent = `${total}/${pool[this.view] ?? this.items.length - pool.tools}`;
+
+    let parts = 0;
+    let toBuy = 0;
+    let tools = 0;
+    let archived = 0;
+    let latest = '';
+    for (const it of this.items) {
+      if (itemKind(it) === 'tool') {
+        if (isArchived(it)) archived++;
+        else tools++;
+      } else {
+        parts++;
+        if (it.to_buy) toBuy++;
+      }
+      if (it.updated_at > latest) latest = it.updated_at;
+    }
+    const title = { parts: 'Parts', tools: this.archived ? 'Archive' : 'Tools', shopping: 'To buy' }[this.view];
+    const rev = latest ? ` · rev ${latest.slice(0, 10)}` : '';
+    $('view-title').textContent = title;
+    $('meta-title').textContent = `Inventory · ${title}`;
+    $('meta-info').textContent = {
+      parts: `${parts} part${parts === 1 ? '' : 's'} · ${this.boxes.length} box${this.boxes.length === 1 ? '' : 'es'}${rev}`,
+      tools: `${tools} in use · ${archived} archived${rev}`,
+      shopping: `${toBuy} to buy${rev}`,
+    }[this.view];
+    const pool = { parts, tools: this.archived ? archived : tools, shopping: toBuy }[this.view];
+    $('result-count').textContent = `${total}/${pool}`;
+    $('search-clear').hidden = !this.query;
     for (const v of VIEWS) $(`tab-${v}`).classList.toggle('active', this.view === v);
-    $('shopping-count').textContent = String(toBuy);
+    $('shopping-count').textContent = toBuy ? String(toBuy) : '';
     $('shopping-count').classList.toggle('alert', toBuy > 0);
     $('status-selection').textContent = this.selected.size ? `${this.selected.size} selected` : '';
   }
@@ -502,7 +669,8 @@ class App {
   focusItem(item, { open = false } = {}) {
     closeAllModals();
     const view = itemKind(item) === 'tool' ? 'tools' : 'parts';
-    if (this.view !== view && !(this.view === 'shopping' && item.to_buy)) this.setView(view);
+    if (view === 'tools' && (this.view !== 'tools' || this.archived !== isArchived(item))) this.setArchived(isArchived(item));
+    else if (this.view !== view && !(this.view === 'shopping' && item.to_buy)) this.setView(view);
     let i = this.rows.findIndex((r) => r.item?.id === item.id);
     if (i < 0) {
       this.setQuery('');
@@ -576,7 +744,10 @@ class App {
     const row = this.cursorRow();
     if (!prefill && row?.kind === 'empty') prefill = `${row.slot} `;
     if (!prefill && this.slotBanner && !this.slotBanner.count) prefill = `${this.slotBanner.slot} `;
-    openQuickAdd(this, { prefill, kind: this.view === 'tools' ? 'tool' : 'part' });
+    const kind = this.view === 'tools' ? 'tool' : 'part';
+    // Phones get a form; the Quick Add line is made for a keyboard.
+    if (isMobile()) openAddForm(this, { prefill, kind });
+    else openQuickAdd(this, { prefill, kind });
   }
 
   edit(item = this.cursorItem()) {
@@ -585,9 +756,14 @@ class App {
 
   async moveTargets(items = this.targets()) {
     if (!items.length) return;
+    // Phones pick the slot on a map of the box.
+    if (isMobile() && items.length === 1) return openSlotMap(this, { item: items[0] });
     const title = items.length === 1 ? `Move “${items[0].name}” to…` : `Move ${items.length} items to…`;
     const slot = await pickSlot(this, { title, okText: 'Move' });
-    if (!slot) return;
+    if (slot) await this.moveTo(items, slot);
+  }
+
+  async moveTo(items, slot) {
     const undo = this.snapshot(items);
     const data = await this.run(() => api.items.move(items.map((it) => it.id), slot));
     if (!data) return;
@@ -596,7 +772,18 @@ class App {
     this.done(items.length === 1 ? `Moved “${items[0].name}” to ${slot}` : `Moved ${items.length} items to ${slot}`, undo);
   }
 
+  /** Moves one of the slots of an item, keeping the others. */
+  async replaceSlot(item, from, to) {
+    const undo = this.snapshot([item]);
+    const updated = await this.run(() => api.items.update(item.id, { ...item, slots: item.slots.map((s) => (s === from ? to : s)) }));
+    if (!updated) return;
+    this.putItem(updated);
+    this.done(`Moved “${item.name}” to ${to} (was ${from})`, undo);
+  }
+
   async swap(from = this.cursorItem()?.slots[0] || (this.cursorRow()?.kind === 'empty' ? this.cursorRow().slot : '')) {
+    const item = this.sheet?.row.item || this.cursorItem();
+    if (isMobile() && item?.slots[0] === from) return openSlotMap(this, { item });
     const pair = await openSwap(this, from || '');
     if (pair) await this.swapSlots(pair[0], pair[1]);
   }
@@ -646,13 +833,27 @@ class App {
     this.quantityChanged(item, updated, undo);
   }
 
+  /** Types the quantity in place when the details show the item, else in a dialog. */
   async setQuantity(item = this.cursorItem()) {
     if (!item) return;
+    const shown = this.sheet ? this.sheet.row.item?.id : !isMobile() && this.cursorItem()?.id;
+    if (shown === item.id) {
+      this.editingQty = item.id;
+      this.renderPreview();
+      // Synchronously, within the tap: iOS only opens the keyboard then.
+      const input = (this.sheet ? this.sheet.body : $('preview')).querySelector('.qty-edit');
+      input?.focus();
+      input?.select();
+      return;
+    }
     const value = await openQuantityDialog(item);
-    if (value === null || value === item.quantity) return;
+    if (value !== null && value !== item.quantity) await this.saveQuantity(item, value);
+  }
+
+  async saveQuantity(item, value) {
     const undo = this.snapshot([item]);
     const updated = await this.run(() => api.items.quantity(item.id, { set: value }));
-    if (!updated) return;
+    if (!updated) return this.renderPreview();
     this.putItem(updated);
     this.quantityChanged(item, updated, undo);
   }
@@ -718,6 +919,22 @@ class App {
       e.preventDefault();
       this.attachFiles(this.cursorItem(), [...e.dataTransfer.files]);
     });
+  }
+
+  /** Archives a tool (broken, lost, sold: off the list, kept on record), or restores it. */
+  async toggleArchive(item = this.cursorItem()) {
+    if (!item) return;
+    if (itemKind(item) !== 'tool') return toast('Only tools are archived: a part is in stock or on the shopping list.');
+    const archive = !isArchived(item);
+    const undo = this.snapshot([item]);
+    const updated = await this.run(() => api.items.update(item.id, { ...item, status: archive ? 'archived' : '' }));
+    if (!updated) return;
+    this.putItem(updated);
+    this.done(archive ? `Archived “${updated.name}”` : `Restored “${updated.name}” to the tools in use`, undo);
+  }
+
+  copy(text, message) {
+    navigator.clipboard?.writeText(text).then(() => toast(message), () => toast(text));
   }
 
   async remove(items = this.targets()) {
@@ -903,15 +1120,20 @@ function itemKind(item) {
   return item.kind || 'part';
 }
 
-/** 'valid' until the warranty end (inclusive), 'expired' after, '' without one. */
-function warranty(it, today = new Date().toISOString().slice(0, 10)) {
-  if (!it.warranty_until) return '';
-  return it.warranty_until >= today ? 'valid' : 'expired';
+function isArchived(item) {
+  return item.status === 'archived';
 }
 
-function warrantyCell(it) {
-  const w = warranty(it);
-  return h('span', { class: ['row-warranty', w] }, w === 'valid' ? `→ ${it.warranty_until.slice(0, 7)}` : w || '—');
+/** Valid until the end date (inclusive), with the months left; "ending" under 3. */
+function warrantyState(end, today = new Date().toISOString().slice(0, 10)) {
+  if (end < today) return { state: 'expired', text: 'expired' };
+  const [y, m, d] = end.split('-').map(Number);
+  const [ty, tm, td] = today.split('-').map(Number);
+  const months = (y - ty) * 12 + (m - tm) - (d < td ? 1 : 0);
+  return {
+    state: months < 3 ? 'ending' : 'valid',
+    text: months < 1 ? 'valid · ends this month' : `valid · ${months} mo. left`,
+  };
 }
 
 /** Same rule as the server: on the list once the quantity drops to 0, off it above 0. */

@@ -18,31 +18,40 @@
   <script type="module" src="/js/app.js"></script>
 </head>
 <body>
-  <header class="topbar">
-    <span class="brand" id="brand"><span class="brand-name">Inventory</span></span>
-    <label class="searchbar">
-      <span class="search-icon" id="search-icon"></span>
-      <input type="search" id="search" class="search-input" placeholder="Find a part, a slot (A-12), #tag, @box…"
-             autocomplete="off" spellcheck="false" autocapitalize="off" enterkeyhint="search" aria-label="Search">
-      <span class="result-count" id="result-count"></span>
-    </label>
-    <button type="button" class="button primary add-button" id="add-button" title="Add parts (a)"><span class="label">Add</span></button>
-    <button type="button" class="icon-button" id="more-button" title="More"></button>
+  <!-- Sticky and opaque at the top edge: iOS 26 extends its colour under the
+       status bar instead of blurring the top of the page. -->
+  <header class="masthead">
+    <div class="meta">
+      <span id="meta-title">Inventory · Parts</span>
+      <span class="meta-info" id="meta-info"></span>
+    </div>
+    <div class="mast-row">
+      <h1 class="view-title" id="view-title">Parts</h1>
+      <!-- Desktop: the tabs are the page title. Phones: a bar at the bottom. -->
+      <nav class="tabs" aria-label="Lists">
+        <button type="button" class="tab active" id="tab-parts"><span class="tab-key">1</span><span class="tab-label">Parts</span></button>
+        <button type="button" class="tab" id="tab-tools"><span class="tab-key">2</span><span class="tab-label">Tools</span></button>
+        <button type="button" class="tab" id="tab-shopping"><span class="tab-key">3</span><span class="tab-label">To buy</span> <span class="tab-count" id="shopping-count"></span></button>
+        <button type="button" class="tab tab-add" id="tab-add"><span class="tab-label">+ Add</span></button>
+      </nav>
+      <label class="find">
+        <span class="find-label">find:</span>
+        <input type="search" id="search" class="search-input" placeholder="name, A-12, #tag, @box"
+               autocomplete="off" spellcheck="false" autocapitalize="off" enterkeyhint="search" aria-label="Search">
+        <span class="result-count" id="result-count"></span>
+        <button type="button" class="find-clear" id="search-clear" hidden>clear</button>
+      </label>
+      <button type="button" class="button primary add-button" id="add-button" title="Add (a)">+ Add <kbd>a</kbd></button>
+      <button type="button" class="icon-button more-button" id="more-button" title="More" aria-label="More"></button>
+    </div>
   </header>
 
   <div class="panes">
     <main class="results-pane">
-      <nav class="tabs" aria-label="Lists">
-        <button type="button" class="tab active" id="tab-parts">parts</button>
-        <button type="button" class="tab" id="tab-tools">tools</button>
-        <button type="button" class="tab" id="tab-shopping">shopping <span class="tab-count" id="shopping-count"></span></button>
-      </nav>
       <div class="results" id="results" aria-label="Results"></div>
     </main>
     <aside class="preview" id="preview" aria-label="Details"></aside>
   </div>
-
-  <button type="button" class="fab" id="fab" title="Add parts" aria-label="Add parts"></button>
 
   <footer class="statusbar">
     <div class="status-left">
@@ -51,7 +60,7 @@
       <span class="status-selection" id="status-selection"></span>
     </div>
     <div class="status-hints">
-      <span><kbd>/</kbd> search</span>
+      <span><kbd>/</kbd> find</span>
       <span><kbd>j</kbd><kbd>k</kbd> move</span>
       <span><kbd>a</kbd> add</span>
       <span><kbd>+</kbd><kbd>-</kbd> quantity</span>

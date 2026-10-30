@@ -7,10 +7,13 @@ slot.
 
 Built like [Get Done](https://github.com/bhr-tools/GetDone): **slow tech**, a
 single Go binary with embedded SQLite and web app, Rosé Pine themes following
-the system, and full Vim navigation.
+the system, and full Vim navigation. It reads like a component datasheet:
+ruled tables grouped by box, IBM Plex (shipped with the app, no font service).
 
 - **fzf-like search:** one field, results on every keystroke, the item under the
-  cursor previewed on the right with its neighbouring slots.
+  cursor previewed on the right with its neighbouring slots. On a phone, the
+  tabs sit at the bottom and an item opens as a page (swipe from the left edge
+  to go back).
 - **Forgiving:** prefixes, typos (`condesateur`), accents, scattered letters
   (`scrtch`), and aliases: give a part the names you might remember it by.
 - **No duplicates:** while you type a new part, look-alike items are listed;
@@ -22,8 +25,10 @@ the system, and full Vim navigation.
   tab (an item created at 0 does not). Set a quantity when you bought some, or
   delete it if you won't buy it again.
 - **Tools register:** a second tab records tools (no slot, no count): brand,
-  reference, serial number, warranty end, and a status (`lost`, `broken`) that
-  keeps a lost tool on record with its invoice.
+  reference, serial number and warranty end, shown in the tool's details. A
+  tool that is broken, lost or sold is **archived** (`A`): it leaves the list
+  but stays on record with its serial number and invoice, under “Show
+  archived” or `is:archived`.
 - **Attached files:** invoices, manuals, photos, datasheets on any tool or part.
   Drop them on the details, or press `f` (on a phone: camera, photos or files).
   They open through a signed link, which also works in the viewer iOS opens
@@ -45,7 +50,7 @@ the system, and full Vim navigation.
 | `is:untagged`, `is:unplaced` | items without tags, or without a slot |
 | `makita`, `dhp482`, `sn4821` | tools by brand, reference, or serial (from its start, never fuzzy) |
 | `is:tool`, `is:part` | one kind |
-| `is:lost`, `is:broken` | tools by status |
+| `is:archived` | archived tools (broken, lost, sold) |
 | `is:warranty`, `has:file` | tools still under warranty; items with attachments |
 
 The query is kept in the URL (`/?q=A-12`), so a slot can be bookmarked or put
@@ -53,7 +58,9 @@ in a QR code on the box.
 
 ## Adding parts
 
-Press `a` and type one line:
+On a phone, `+ Add` opens a short form: the name lists look-alike items as you
+type, the slot is picked among the free ones of a box (or on its map), and the
+count is set with − / +. On a computer, press `a` and type one line:
 
 ```
 ESP32-WROOM B-2 #electronic/mcu ~esp ~"wifi board" x5
@@ -102,6 +109,7 @@ Press `?` in the app for the cheatsheet.
 | `m` | Move to a slot |
 | `s` | Swap two slots |
 | `t` | Add tags, or remove them with `-tag` |
+| `A` | Archive a tool, or restore it |
 | `d` / `u` | Delete / undo |
 | `b` | Boxes (grid: `hjkl` move, `[` `]` switch box, `s` swap, `a` add) |
 | `T` | Tags (rename, merge, delete) |
@@ -141,7 +149,9 @@ days for undo, then a daily purge removes them. Back up the data directory
 ## Import and export
 
 The menu exports the whole inventory as CSV (`name, kind, slots, tags, aliases,
-quantity, brand, model, serial, warranty_until, status, description, notes`; an empty quantity is 0 for a new item and
+quantity, brand, model, serial, warranty_until, status, description, notes`;
+`status` is `archived` or empty, and the `broken` or `lost` of older exports
+read as archived; an empty quantity is 0 for a new item and
 keeps the count of an existing one; slots and tags separated by spaces, aliases by
 semicolons). Importing the same format merges rows into existing items of the
 same name.

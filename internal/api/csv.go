@@ -18,7 +18,8 @@ import (
 // spaces; aliases may, so they are separated by semicolons.
 // An empty quantity is 0 for a new item and keeps the count of an existing one.
 // kind is part or tool; tools fill brand, model, serial, warranty_until
-// (YYYY-MM-DD) and status (broken, lost or empty). Attachments are not in the
+// (YYYY-MM-DD) and status (archived or empty; broken and lost from older
+// exports read as archived). Attachments are not in the
 // file: the server backups hold them.
 var csvHeader = []string{"name", "kind", "slots", "tags", "aliases", "quantity", "brand", "model", "serial", "warranty_until", "status", "description", "notes"}
 

@@ -23,11 +23,12 @@ const SECTIONS = [
     [['m'], 'Move to a slot'],
     [['s'], 'Swap two slots'],
     [['t'], 'Add or remove tags'],
+    [['A'], 'Archive a tool (broken, lost, sold), or restore it'],
     [['d'], 'Delete'],
     [['u'], 'Undo'],
   ]],
   ['Views', [
-    [['1', '2', '3'], 'Parts / tools / shopping (& é " on AZERTY)'],
+    [['1', '2', '3'], 'Parts / tools / to buy (& é " on AZERTY)'],
     [['b'], 'Boxes, as grids'],
     [['T'], 'Tags'],
     [['?'], 'This help'],
@@ -51,7 +52,7 @@ const SYNTAX = [
   ['is:empty', 'free slots of the configured boxes'],
   ['is:untagged  is:unplaced', 'items without tags, or without a slot'],
   ['makita  sn12345', 'tools by brand, reference or serial (from its start)'],
-  ['is:lost  is:broken', 'tools by status'],
+  ['is:archived', 'archived tools (broken, lost, sold), hidden from the list'],
   ['is:warranty  has:file', 'still under warranty; with attachments'],
 ];
 

@@ -15,8 +15,13 @@ const (
 	KindTool = "tool"
 )
 
-// Tool statuses. The empty string means the tool is in use.
-var toolStatuses = map[string]bool{"": true, "broken": true, "lost": true}
+// StatusArchived marks a tool that is gone (broken, lost, sold) but kept on
+// record with its serial number and invoice. The empty status means in use.
+const StatusArchived = "archived"
+
+// legacyStatuses were the tool statuses before archiving replaced them; older
+// CSV exports still carry them.
+var legacyStatuses = map[string]bool{"broken": true, "lost": true}
 
 // Item is a part or a tool.
 type Item struct {
@@ -115,9 +120,12 @@ func (in ItemInput) clean() (cleanItem, error) {
 			return c, invalid("The warranty end is a date like 2027-03-31")
 		}
 	}
-	c.status = strings.TrimSpace(in.Status)
-	if !toolStatuses[c.status] {
-		return c, invalid("The status is broken, lost or empty")
+	c.status = strings.ToLower(strings.TrimSpace(in.Status))
+	if legacyStatuses[c.status] {
+		c.status = StatusArchived
+	}
+	if c.status != "" && c.status != StatusArchived {
+		return c, invalid("The status is archived or empty")
 	}
 	if in.Quantity != nil {
 		if *in.Quantity < 0 || *in.Quantity > MaxQuantity {
@@ -364,7 +372,7 @@ func (c *cleanItem) forKind(kind string) error {
 		return nil
 	}
 	if c.status != "" {
-		return invalid("Only tools can be broken or lost")
+		return invalid("Only tools can be archived")
 	}
 	return nil
 }

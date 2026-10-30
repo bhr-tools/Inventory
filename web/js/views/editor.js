@@ -1,6 +1,7 @@
 // Full editor of one item. Slots and tags complete like in Quick Add, and the
 // name warns about look-alike items. The kind can be switched: a part has
-// slots and a count, a tool brand, reference, serial, warranty and status.
+// slots and a count, a tool brand, reference, serial, warranty, and can be
+// archived.
 // Files dropped on the dialog are attached to the item.
 
 import { h } from '../dom.js';
@@ -34,9 +35,7 @@ export function openEditor(app, item) {
   const model = text(item.model || '', 'DHP482', { maxLength: 100 });
   const serial = text(item.serial || '', 'On the label', { maxLength: 100 });
   const warrantyUntil = h('input', { type: 'date', class: 'input', value: item.warranty_until || '' });
-  const status = h('select', { class: 'input' },
-    [['', 'in use'], ['broken', 'broken'], ['lost', 'lost']]
-      .map(([v, label]) => h('option', { value: v, selected: (item.status || '') === v }, label)));
+  const archived = h('input', { type: 'checkbox', checked: item.status === 'archived' });
   const description = h('textarea', { class: 'input textarea', value: item.description, placeholder: 'Value, size, reference…', rows: 2, maxLength: 2000 });
   const notes = h('textarea', { class: 'input textarea', value: item.notes, placeholder: 'Datasheet link, where to buy, pinout…', rows: 4, maxLength: 10000 });
   const error = h('div', { class: 'form-error', hidden: true });
@@ -89,7 +88,7 @@ export function openEditor(app, item) {
         model: isTool ? model.value : '',
         serial: isTool ? serial.value : '',
         warranty_until: isTool ? warrantyUntil.value : '',
-        status: isTool ? status.value : '',
+        status: isTool && archived.checked ? 'archived' : '',
         description: description.value,
         notes: notes.value,
       });
@@ -110,7 +109,7 @@ export function openEditor(app, item) {
     field('Reference', model),
     field('Serial number', serial),
     field('Warranty until', warrantyUntil),
-    field('Status', status));
+    h('label', { class: 'field-check' }, archived, 'Archived: broken, lost or sold, kept on record'));
   const body = h('form', { class: 'editor', onsubmit: (e) => { e.preventDefault(); save(); } },
     error,
     field('Name', name, nameWarning),
@@ -144,6 +143,7 @@ export function openEditor(app, item) {
   const modal = openModal({
     title: item.kind === 'tool' ? 'Edit tool' : 'Edit part',
     className: 'editor-modal',
+    action: { label: 'Save', run: save },
     body,
     footer: [
       h('button', { type: 'button', class: 'button danger-text', onclick: () => app.remove([item]) }, 'Delete'),

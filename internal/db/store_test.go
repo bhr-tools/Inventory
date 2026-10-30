@@ -65,6 +65,43 @@ func TestMigratesStockToQuantity(t *testing.T) {
 	}
 }
 
+func TestMigratesBrokenAndLostToArchived(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v4.db")
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range append(append([]string{}, migrations[:4]...),
+		`INSERT INTO items (id, name, name_key, kind, status, quantity, created_at, updated_at) VALUES
+			('a', 'Saw', 'saw', 'tool', 'broken', 0, '', ''),
+			('b', 'Pliers', 'pliers', 'tool', 'lost', 0, '', ''),
+			('c', 'Drill', 'drill', 'tool', '', 0, '', '')`,
+		"PRAGMA user_version = 4") {
+		if _, err := old.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	items, err := s.Items()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, it := range items {
+		got[it.Name] = it.Status
+	}
+	want := map[string]string{"Saw": StatusArchived, "Pliers": StatusArchived, "Drill": ""}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("after migration: %v, want %v", got, want)
+	}
+}
+
 func mustCreate(t *testing.T, s *Store, in ItemInput) Item {
 	t.Helper()
 	it, err := s.CreateItem(in)
@@ -379,9 +416,10 @@ func TestTools(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	// An update without a kind keeps it; a lost tool stays recorded.
+	// An update without a kind keeps it; an archived tool stays recorded, and
+	// the statuses of older exports read as archived.
 	got, err := s.UpdateItem(tool.ID, ItemInput{Name: "Drill", Brand: "Makita", Status: "lost"})
-	if err != nil || got.Kind != KindTool || got.Status != "lost" || got.Model != "" {
+	if err != nil || got.Kind != KindTool || got.Status != StatusArchived || got.Model != "" {
 		t.Fatalf("update: %+v %v", got, err)
 	}
 	if err := s.MoveItems([]string{tool.ID}, "A-1"); err == nil {

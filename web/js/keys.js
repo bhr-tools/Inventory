@@ -73,6 +73,7 @@ export function initKeys(app) {
       case 's': app.swap(); return true;
       case 't': app.tagTargets(); return true;
       case 'T': openTags(app); return true;
+      case 'A': app.toggleArchive(); return true;
       case 'd': app.remove(); return true;
       case 'u': app.undo(); return true;
       case 'b': app.openGrid(); return true;
