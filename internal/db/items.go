@@ -13,7 +13,8 @@ type Item struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Notes       string   `json:"notes"`
-	Quantity    *int     `json:"quantity"` // nil when not counted; 0 puts it on the shopping list
+	Quantity    int      `json:"quantity"`
+	ToBuy       bool     `json:"to_buy"` // on the shopping list: its quantity dropped to 0
 	Slots       []string `json:"slots"`
 	Tags        []string `json:"tags"`
 	Aliases     []string `json:"aliases"`
@@ -26,10 +27,20 @@ type ItemInput struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Notes       string   `json:"notes"`
-	Quantity    *int     `json:"quantity"`
+	Quantity    *int     `json:"quantity"` // omitted: 0 for a new item, unchanged otherwise
 	Slots       []string `json:"slots"`
 	Tags        []string `json:"tags"`
 	Aliases     []string `json:"aliases"`
+}
+
+// shoppingFlag tells whether an item is on the shopping list once its
+// quantity goes from old to updated: it joins when the quantity drops to 0
+// and leaves as soon as it is above 0 again.
+func shoppingFlag(old, updated int, toBuy bool) bool {
+	if updated > 0 {
+		return false
+	}
+	return toBuy || old > 0
 }
 
 // cleanItem is a validated ItemInput.
@@ -109,13 +120,13 @@ func (s *Store) loadItems(q querier, id string) ([]Item, error) {
 	byID := map[string]*Item{}
 	var order []*Item
 
-	rows, err := q.Query(`SELECT id, name, description, notes, quantity, created_at, updated_at FROM items`+itemFilter, args...)
+	rows, err := q.Query(`SELECT id, name, description, notes, COALESCE(quantity, 0), to_buy, created_at, updated_at FROM items`+itemFilter, args...)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		it := &Item{Slots: []string{}, Tags: []string{}, Aliases: []string{}}
-		if err := rows.Scan(&it.ID, &it.Name, &it.Description, &it.Notes, &it.Quantity, &it.CreatedAt, &it.UpdatedAt); err != nil {
+		if err := rows.Scan(&it.ID, &it.Name, &it.Description, &it.Notes, &it.Quantity, &it.ToBuy, &it.CreatedAt, &it.UpdatedAt); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -218,7 +229,7 @@ func (s *Store) CreateItem(in ItemInput) (Item, error) {
 		}
 		t := now()
 		if _, err := tx.Exec(`INSERT INTO items (id, name, name_key, description, notes, quantity, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, c.name, c.key, c.description, c.notes, c.quantity, t, t); err != nil {
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, c.name, c.key, c.description, c.notes, c.quantityOr(0), t, t); err != nil {
 			return err
 		}
 		return writeLists(tx, id, c)
@@ -239,13 +250,14 @@ func (s *Store) UpdateItem(id string, in ItemInput) (Item, error) {
 		if err := checkUniqueName(tx, c, id); err != nil {
 			return err
 		}
-		res, err := tx.Exec(`UPDATE items SET name = ?, name_key = ?, description = ?, notes = ?, quantity = ?, updated_at = ? WHERE id = ?`,
-			c.name, c.key, c.description, c.notes, c.quantity, now(), id)
+		old, toBuy, err := quantityOf(tx, id)
 		if err != nil {
 			return err
 		}
-		if n, _ := res.RowsAffected(); n == 0 {
-			return ErrNotFound
+		q := c.quantityOr(old)
+		if _, err := tx.Exec(`UPDATE items SET name = ?, name_key = ?, description = ?, notes = ?, quantity = ?, to_buy = ?, updated_at = ? WHERE id = ?`,
+			c.name, c.key, c.description, c.notes, q, shoppingFlag(old, q, toBuy), now(), id); err != nil {
+			return err
 		}
 		return writeLists(tx, id, c)
 	})
@@ -253,6 +265,22 @@ func (s *Store) UpdateItem(id string, in ItemInput) (Item, error) {
 		return Item{}, err
 	}
 	return s.Item(id)
+}
+
+func (c cleanItem) quantityOr(fallback int) int {
+	if c.quantity == nil {
+		return fallback
+	}
+	return *c.quantity
+}
+
+// quantityOf reads the quantity and shopping flag of an item.
+func quantityOf(q querier, id string) (quantity int, toBuy bool, err error) {
+	err = q.QueryRow(`SELECT COALESCE(quantity, 0), to_buy FROM items WHERE id = ?`, id).Scan(&quantity, &toBuy)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = ErrNotFound
+	}
+	return quantity, toBuy, err
 }
 
 func checkUniqueName(q querier, c cleanItem, selfID string) error {
@@ -322,7 +350,7 @@ func (s *Store) DeleteItems(ids []string) ([]Item, error) {
 func (s *Store) RestoreItems(items []Item) error {
 	return s.tx(func(tx *sql.Tx) error {
 		for _, it := range items {
-			c, err := ItemInput{Name: it.Name, Description: it.Description, Notes: it.Notes, Quantity: it.Quantity,
+			c, err := ItemInput{Name: it.Name, Description: it.Description, Notes: it.Notes, Quantity: &it.Quantity,
 				Slots: it.Slots, Tags: it.Tags, Aliases: it.Aliases}.clean()
 			if err != nil {
 				return err
@@ -337,12 +365,12 @@ func (s *Store) RestoreItems(items []Item) error {
 			if created == "" {
 				created = now()
 			}
-			if _, err := tx.Exec(`INSERT INTO items (id, name, name_key, description, notes, quantity, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			if _, err := tx.Exec(`INSERT INTO items (id, name, name_key, description, notes, quantity, to_buy, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(id) DO UPDATE SET name = excluded.name, name_key = excluded.name_key,
 					description = excluded.description, notes = excluded.notes, quantity = excluded.quantity,
-					updated_at = excluded.updated_at`,
-				it.ID, c.name, c.key, c.description, c.notes, c.quantity, created, now()); err != nil {
+					to_buy = excluded.to_buy, updated_at = excluded.updated_at`,
+				it.ID, c.name, c.key, c.description, c.notes, it.Quantity, it.ToBuy && it.Quantity == 0, created, now()); err != nil {
 				return err
 			}
 			if err := writeLists(tx, it.ID, c); err != nil {
@@ -471,9 +499,10 @@ func (s *Store) TagItems(ids, add, remove []string) error {
 	})
 }
 
-// ChangeQuantity adds delta to the quantity of an item (an item that was not
-// counted starts from 0), or sets it when set is not nil. It never goes below
-// zero, and the change is atomic, so quick presses from two devices add up.
+// ChangeQuantity adds delta to the quantity of an item, or sets it when set
+// is not nil. It never goes below zero; dropping to zero puts the item on the
+// shopping list. The read and the write share one transaction, so quick
+// presses from two devices add up.
 func (s *Store) ChangeQuantity(id string, delta int, set *int) (Item, error) {
 	if set != nil && (*set < 0 || *set > MaxQuantity) {
 		return Item{}, invalid("The quantity goes from 0 to %d", MaxQuantity)
@@ -481,19 +510,21 @@ func (s *Store) ChangeQuantity(id string, delta int, set *int) (Item, error) {
 	if delta < -MaxQuantity || delta > MaxQuantity {
 		return Item{}, invalid("The quantity goes from 0 to %d", MaxQuantity)
 	}
-	var res sql.Result
-	var err error
-	if set != nil {
-		res, err = s.db.Exec(`UPDATE items SET quantity = ?, updated_at = ? WHERE id = ?`, *set, now(), id)
-	} else {
-		res, err = s.db.Exec(`UPDATE items SET quantity = MIN(?, MAX(0, COALESCE(quantity, 0) + ?)), updated_at = ? WHERE id = ?`,
-			MaxQuantity, delta, now(), id)
-	}
+	err := s.tx(func(tx *sql.Tx) error {
+		old, toBuy, err := quantityOf(tx, id)
+		if err != nil {
+			return err
+		}
+		q := min(MaxQuantity, max(0, old+delta))
+		if set != nil {
+			q = *set
+		}
+		_, err = tx.Exec(`UPDATE items SET quantity = ?, to_buy = ?, updated_at = ? WHERE id = ?`,
+			q, shoppingFlag(old, q, toBuy), now(), id)
+		return err
+	})
 	if err != nil {
 		return Item{}, err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return Item{}, ErrNotFound
 	}
 	return s.Item(id)
 }

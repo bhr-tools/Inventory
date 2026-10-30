@@ -18,7 +18,7 @@ func (s *Store) ImportItems(inputs []ItemInput) (created, merged int, err error)
 				id = newID()
 				t := now()
 				if _, err := tx.Exec(`INSERT INTO items (id, name, name_key, description, notes, quantity, created_at, updated_at)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, c.name, c.key, c.description, c.notes, c.quantity, t, t); err != nil {
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, c.name, c.key, c.description, c.notes, c.quantityOr(0), t, t); err != nil {
 					return err
 				}
 				if err := writeLists(tx, id, c); err != nil {
@@ -34,15 +34,13 @@ func (s *Store) ImportItems(inputs []ItemInput) (created, merged int, err error)
 			if err != nil {
 				return err
 			}
-			quantity := existing.Quantity
-			if c.quantity != nil {
-				quantity = c.quantity
-			}
+			// A file without a quantity keeps the current one.
+			quantity := c.quantityOr(existing.Quantity)
 			m, err := ItemInput{
 				Name:        existing.Name,
 				Description: firstNonEmpty(existing.Description, c.description),
 				Notes:       firstNonEmpty(existing.Notes, c.notes),
-				Quantity:    quantity,
+				Quantity:    &quantity,
 				Slots:       append(existing.Slots, slotStrings(c.slots)...),
 				Tags:        append(existing.Tags, c.tags...),
 				Aliases:     append(existing.Aliases, c.aliases...),
@@ -50,8 +48,8 @@ func (s *Store) ImportItems(inputs []ItemInput) (created, merged int, err error)
 			if err != nil {
 				return invalid("%q: %s", in.Name, err.Error())
 			}
-			if _, err := tx.Exec(`UPDATE items SET description = ?, notes = ?, quantity = ?, updated_at = ? WHERE id = ?`,
-				m.description, m.notes, m.quantity, now(), id); err != nil {
+			if _, err := tx.Exec(`UPDATE items SET description = ?, notes = ?, quantity = ?, to_buy = ?, updated_at = ? WHERE id = ?`,
+				m.description, m.notes, quantity, shoppingFlag(existing.Quantity, quantity, existing.ToBuy), now(), id); err != nil {
 				return err
 			}
 			if err := writeLists(tx, id, m); err != nil {

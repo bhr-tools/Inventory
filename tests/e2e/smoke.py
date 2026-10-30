@@ -37,7 +37,7 @@ def shot(page, name):
 
 
 def rows(page):
-    return page.locator("#results .row")
+    return page.locator("#results .row:not(.thead)")
 
 
 def azerty(page, key):
@@ -85,7 +85,9 @@ def desktop(browser):
     type_search(page, "#tool -fer")
     expect(rows(page)).to_have_count(1)
     type_search(page, "is:out")
-    expect(rows(page)).to_have_count(0)
+    expect(rows(page)).to_have_count(6)  # items created without a quantity are at 0
+    type_search(page, "is:tobuy")
+    expect(rows(page)).to_have_count(0)  # ...but none dropped to 0
     type_search(page, "is:empty @A")
     expect(rows(page)).to_have_count(21)
 
@@ -112,12 +114,12 @@ def desktop(browser):
     expect(qa).to_be_focused()
     # The guide shows the syntax of every field, and highlights the one being typed.
     guide = page.locator(".quick-guide")
-    expect(guide.locator(".guide-row.typing .guide-label")).to_have_text("Name")
+    expect(guide.locator(".guide-row.typing .guide-label")).to_have_text("name")
     expect(guide).to_contain_text("x5")
     qa.type("Fil de cuivre #ele")
-    expect(guide.locator(".guide-row.typing .guide-label")).to_have_text("Tags")
+    expect(guide.locator(".guide-row.typing .guide-label")).to_have_text("tags")
     qa.type("ctronic x3")
-    expect(guide.locator(".guide-row.typing .guide-label")).to_have_text("Quantity")
+    expect(guide.locator(".guide-row.typing .guide-label")).to_have_text("qty")
     expect(guide.locator(".chip.quantity")).to_have_text("3")
     expect(guide.locator(".guide-row.filled")).to_have_count(3)
     shot(page, "04a-quickadd-guide")
@@ -203,7 +205,7 @@ def desktop(browser):
     # Quantity: ESP32 went 1 + 4 = 5; - three times, then x to 0.
     type_search(page, "esp32")
     page.keyboard.press("Escape")
-    expect(rows(page).first.locator(".qty")).to_have_text("×5")
+    expect(rows(page).first.locator(".row-qty")).to_have_text("5")
     page.keyboard.press("-")
     page.keyboard.press("-")
     page.keyboard.press("-")
@@ -227,6 +229,7 @@ def desktop(browser):
     page.keyboard.press("Escape")
     azerty(page, "é")
     expect(page.locator("#tab-shopping")).to_have_class("tab active")
+    # Only the two items whose quantity dropped to 0: the ones created at 0 stay off the list.
     expect(rows(page)).to_have_count(2)
     shot(page, "07a-shopping")
     type_search(page, "esp")
@@ -241,8 +244,8 @@ def desktop(browser):
     expect(rows(page)).to_have_count(1)
     page.keyboard.press("d")
     expect(page.locator(".toast")).to_contain_text("Deleted “Arduino Nano”")
-    expect(page.locator("#shopping-count")).to_have_text("")
-    expect(page.locator(".empty-state")).to_contain_text("Nothing to buy")
+    expect(page.locator("#shopping-count")).to_have_text("0")
+    expect(page.locator(".empty-state")).to_contain_text("nothing to buy")
     azerty(page, "&")
     expect(page.locator("#tab-inventory")).to_have_class("tab active")
 

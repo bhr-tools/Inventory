@@ -5,7 +5,7 @@
 //   #electronic       tag, including its sub-tags; #mcu also finds electronic/mcu
 //   @A                box A
 //   -smd              exclude items mentioning "smd"
-//   is:out            quantity down to 0 (the shopping list)
+//   is:out            quantity 0; is:tobuy  on the shopping list
 //   is:untagged is:unplaced is:empty
 //   A-12              a slot: its contents come first
 // Pure functions, tested under Node (tests/js).
@@ -13,7 +13,7 @@
 import { normalize, words, editDistance, typoBudget, similarity } from './text.js';
 import { parseSlot, slotName, compareSlots } from './slots.js';
 
-const FLAGS = new Set(['out', 'untagged', 'unplaced', 'empty']);
+const FLAGS = new Set(['out', 'tobuy', 'untagged', 'unplaced', 'empty']);
 
 // How much a match in each field counts.
 const WEIGHTS = { name: 1, alias: 0.9, tag: 0.7, description: 0.45, notes: 0.35 };
@@ -124,6 +124,7 @@ function passesFilters(idx, q) {
   if (q.excluded.some((w) => mentions(idx, w))) return false;
   for (const f of q.flags) {
     if (f === 'out' && it.quantity !== 0) return false;
+    if (f === 'tobuy' && !it.to_buy) return false;
     if (f === 'untagged' && it.tags.length) return false;
     if (f === 'unplaced' && it.slots.length) return false;
   }

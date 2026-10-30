@@ -8,13 +8,13 @@ import { parseQuery, indexItem, search, similarItems, highlight, hasTag } from '
 import { parseQuickAdd, tokenAt } from '../../web/js/quickadd.js';
 
 const item = (name, extra = {}) => ({
-  id: name, name, description: '', notes: '', quantity: null, slots: [], tags: [], aliases: [], ...extra,
+  id: name, name, description: '', notes: '', quantity: 0, to_buy: false, slots: [], tags: [], aliases: [], ...extra,
 });
 
 const items = [
   item('Condensateur céramique 100nF', { slots: ['A-12'], tags: ['electronic/passive/capacitor'], aliases: ['condo', 'decoupling cap'] }),
   item('Condensateur chimique 10µF', { slots: ['A-13'], tags: ['electronic/passive/capacitor'] }),
-  item('ESP32-WROOM', { slots: ['B-2'], tags: ['electronic/mcu'], aliases: ['esp', 'wifi board'], quantity: 0 }),
+  item('ESP32-WROOM', { slots: ['B-2'], tags: ['electronic/mcu'], aliases: ['esp', 'wifi board'], quantity: 0, to_buy: true }),
   item('Scratch adhésif noir', { slots: ['C-3'], tags: ['fixing'], aliases: ['velcro', 'hook and loop'] }),
   item('Vis M3x10', { slots: ['C-1', 'C-2'], tags: ['hardware/screw'], description: 'Tête cylindrique, inox' }),
   item('Fer à souder', { tags: ['tool'] }),
@@ -66,7 +66,8 @@ test('filters', () => {
   assert.deepEqual(names('#mcu'), ['ESP32-WROOM']);               // sub-tag segment
   assert.deepEqual(names('#capacitor -chimique'), ['Condensateur céramique 100nF']);
   assert.deepEqual(names('@C'), ['Vis M3x10', 'Scratch adhésif noir']);
-  assert.deepEqual(names('is:out'), ['ESP32-WROOM']);
+  assert.deepEqual(names('is:tobuy'), ['ESP32-WROOM']);
+  assert.equal(names('is:out').length, 6);  // every item is at 0 here
   assert.deepEqual(names('is:unplaced'), ['Fer à souder']);
   assert.ok(hasTag(items[0], 'electronic/passive'));
 });

@@ -150,6 +150,12 @@ var migrations = []string{
 	`ALTER TABLE items ADD COLUMN quantity INTEGER; -- NULL: not counted
 	UPDATE items SET quantity = 0 WHERE stock = 'out';
 	ALTER TABLE items DROP COLUMN stock;`,
+
+	// 3: every item is counted (0 by default), and the shopping list is a flag
+	// set when the quantity drops to 0, so items created at 0 stay off it.
+	`ALTER TABLE items ADD COLUMN to_buy INTEGER NOT NULL DEFAULT 0;
+	UPDATE items SET to_buy = 1 WHERE quantity = 0;
+	UPDATE items SET quantity = 0 WHERE quantity IS NULL;`,
 }
 
 func (s *Store) migrate() error {

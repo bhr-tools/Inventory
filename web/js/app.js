@@ -29,7 +29,7 @@ class App {
     this.knownBoxes = new Set();
     const params = new URLSearchParams(location.search);
     this.query = params.get('q') || '';
-    // 'inventory', or 'shopping': the items whose quantity dropped to 0.
+    // 'inventory', or 'shopping': the items whose quantity dropped to 0 (to_buy).
     this.view = params.get('view') === 'shopping' ? 'shopping' : 'inventory';
     this.pendingQuantity = new Map(); // item id → requests in flight
     this.rows = []; // { kind: 'item', item } | { kind: 'empty', slot }
@@ -163,7 +163,7 @@ class App {
     this.slotBanner = null;
     if (this.view === 'shopping') {
       this.rows = search(this.index, q).hits
-        .filter((hit) => hit.item.quantity === 0)
+        .filter((hit) => hit.item.to_buy)
         .map((hit) => ({ kind: 'item', item: hit.item }));
       return;
     }
@@ -225,25 +225,28 @@ class App {
     if (this.slotBanner) {
       const { slot, count } = this.slotBanner;
       list.append(h('div', { class: 'slot-banner' },
-        h('span', { class: 'slot-pill big' }, slot),
-        h('span', null, count ? `${count} item${count === 1 ? '' : 's'} in this slot` : 'This slot is empty'),
-        count ? null : h('button', { type: 'button', class: 'button', onclick: () => this.quickAdd(`${slot} `) }, 'Add something here')));
+        h('span', { class: 'slot' }, slot),
+        h('span', null, count ? `${count} item${count === 1 ? '' : 's'}` : 'empty'),
+        count ? null : h('button', { type: 'button', class: 'button', onclick: () => this.quickAdd(`${slot} `) }, h('kbd', null, 'a'), 'add here')));
     }
     if (!this.rows.length && this.view === 'shopping') {
       list.append(h('div', { class: 'empty-state' }, this.query
-        ? 'Nothing to buy matches this search.'
-        : h('span', null, 'Nothing to buy. Items land here when their quantity drops to 0 (', h('kbd', null, '-'), ' on an item).')));
+        ? 'no match in the shopping list'
+        : h('span', null, 'nothing to buy. an item lands here when its quantity drops to 0 (', h('kbd', null, '-'), ').')));
       return;
     }
     if (!this.rows.length) {
       list.append(h('div', { class: 'empty-state' }, this.items.length
-        ? (this.slotBanner ? null : 'Nothing matches. Try fewer words, a tag (#…) or a box (@A).')
-        : h('span', null, 'Your inventory is empty. Press ', h('kbd', null, 'a'), ' to add your first part.')));
+        ? (this.slotBanner ? null : 'no match. try fewer words, a tag (#…) or a box (@A).')
+        : h('span', null, 'inventory is empty. press ', h('kbd', null, 'a'), ' to add a part.')));
       return;
     }
+    list.append(h('div', { class: 'row thead', attrs: { 'aria-hidden': 'true' } },
+      h('span', { class: 'row-mark' }), h('span', null, 'slot'), h('span', { class: 'num' }, 'qty'),
+      h('span', null, 'name'), h('span', null, 'tags')));
     this.rows.slice(0, MAX_ROWS).forEach((row, i) => list.append(this.renderRow(row, i, terms)));
     if (this.rows.length > MAX_ROWS) {
-      list.append(h('div', { class: 'more-rows' }, `${this.rows.length - MAX_ROWS} more: refine the search to see them`));
+      list.append(h('div', { class: 'more-rows' }, `${this.rows.length - MAX_ROWS} more rows: refine the search`));
     }
     list.querySelector('.row.cursor')?.scrollIntoView({ block: 'nearest' });
   }
@@ -257,26 +260,12 @@ class App {
     if (row.kind === 'empty') {
       return h('div', { class: ['row', 'row-empty', i === this.cursor && 'cursor'], onclick, ondblclick: () => this.quickAdd(`${row.slot} `) },
         h('span', { class: 'row-mark' }),
-        h('span', { class: 'row-name' }, 'empty'),
-        h('span', { class: 'row-slots' }, h('span', { class: 'slot-pill' }, row.slot)));
+        h('span', { class: 'row-slot' }, row.slot),
+        h('span', { class: 'row-qty num' }, ''),
+        h('span', { class: 'row-name' }, '(empty)'),
+        h('span', { class: 'row-tags' }));
     }
     const it = row.item;
-    const { chars, marks } = highlight(it.name, terms);
-    const name = h('span', { class: 'row-name' });
-    let run = '';
-    let runMarked = false;
-    const flush = () => {
-      if (run) name.append(runMarked ? h('mark', null, run) : run);
-      run = '';
-    };
-    chars.forEach((c, k) => {
-      if (marks[k] !== runMarked) {
-        flush();
-        runMarked = marks[k];
-      }
-      run += c;
-    });
-    flush();
     return h('div', {
       class: ['row', i === this.cursor && 'cursor', this.selected.has(it.id) && 'selected', row.inSlot && 'in-slot'],
       dataset: { id: it.id },
@@ -284,13 +273,11 @@ class App {
       ondblclick: () => this.edit(it),
     },
     h('span', { class: 'row-mark' }),
-    name,
-    h('span', { class: 'row-tags' }, it.tags.map((t) => `#${t}`).join(' ')),
-    h('span', { class: 'row-slots' },
-      quantityBadge(it),
-      it.slots.length
-      ? it.slots.slice(0, 3).map((s) => h('span', { class: 'slot-pill' }, s)).concat(it.slots.length > 3 ? [h('span', { class: 'slot-more' }, `+${it.slots.length - 3}`)] : [])
-      : h('span', { class: 'slot-pill none' }, 'no slot')));
+    h('span', { class: ['row-slot', !it.slots.length && 'none'], title: it.slots.join(' ') },
+      it.slots[0] || '—', it.slots.length > 1 ? h('span', { class: 'more' }, ` +${it.slots.length - 1}`) : null),
+    h('span', { class: ['row-qty', 'num', quantityClass(it)] }, String(it.quantity)),
+    highlighted('row-name', it.name, terms),
+    h('span', { class: 'row-tags' }, it.tags.join(' ')));
   }
 
   renderPreview() {
@@ -298,70 +285,67 @@ class App {
     pane.append(this.previewContent());
   }
 
-  /** The details of the cursor row, for the side pane or the phone sheet. */
+  /** The details of the cursor row, as a key/value sheet, for the side pane or the phone sheet. */
   previewContent() {
     const row = this.cursorRow();
-    if (!row) return h('div', { class: 'preview-empty' }, this.items.length ? 'No item selected' : '');
+    if (!row) return h('div', { class: 'preview-empty' }, this.items.length ? 'no item selected' : '');
+    const field = (key, ...value) => [h('dt', null, key), h('dd', null, ...value)];
+    const action = (key, label, run, className) => h('button', { type: 'button', class: ['button', className], onclick: run }, h('kbd', null, key), label);
     if (row.kind === 'empty') {
       return h('div', { class: 'preview-body' },
-        h('div', { class: 'preview-slots' }, h('span', { class: 'slot-pill big' }, row.slot)),
-        h('p', { class: 'muted' }, 'This slot is empty.'),
-        h('div', { class: 'preview-actions' },
-          h('button', { type: 'button', class: 'button primary', onclick: () => this.quickAdd(`${row.slot} `) }, 'Add something here')),
+        h('h2', { class: 'preview-title' }, row.slot),
+        h('dl', { class: 'sheet' }, field('status', h('span', { class: 'muted' }, 'empty'))),
+        h('div', { class: 'preview-actions' }, action('a', 'add here', () => this.quickAdd(`${row.slot} `))),
         this.neighbours(row.slot));
     }
     const it = row.item;
-    const link = (text, query, className) => h('button', { type: 'button', class: className, onclick: () => { closeAllModals(); this.setQuery(query); } }, text);
-    const section = (title, ...content) => h('section', { class: 'preview-section' }, h('h3', null, title), ...content);
+    const link = (text, query, className) => h('button', { type: 'button', class: ['link-button', className], onclick: () => { closeAllModals(); this.setQuery(query); } }, text);
+    const date = (iso) => (iso || '').slice(0, 10);
     return h('div', { class: 'preview-body' },
       h('h2', { class: 'preview-title' }, it.name),
-      h('div', { class: 'preview-slots' },
-        it.slots.length ? it.slots.map((s) => link(s, s, 'slot-pill big')) : h('span', { class: 'slot-pill big none' }, 'no slot')),
-      this.quantityControl(it),
-      it.quantity === 0 ? h('div', { class: 'shopping-actions' },
-        h('button', { type: 'button', class: 'button primary', onclick: () => this.setQuantity(it) }, h('kbd', null, 'x'), 'Bought some'),
-        h('button', { type: 'button', class: 'button danger-text', onclick: () => this.remove([it]) }, h('kbd', null, 'd'), 'Won’t buy again: delete')) : null,
-      it.tags.length ? h('div', { class: 'chips' }, it.tags.map((t) => link(`#${t}`, `#${t}`, 'chip tag'))) : null,
-      it.aliases.length ? section('Also known as', h('div', { class: 'chips' }, it.aliases.map((a) => h('span', { class: 'chip alias' }, a)))) : null,
-      it.description ? section('Description', h('p', { class: 'preview-text' }, it.description)) : null,
-      it.notes ? section('Notes', h('p', { class: 'preview-text' }, it.notes)) : null,
+      h('dl', { class: 'sheet' },
+        field('slot', it.slots.length ? it.slots.map((sl) => link(sl, sl, 'slot')) : h('span', { class: 'muted' }, 'none')),
+        field('qty', this.quantityControl(it)),
+        it.tags.length ? field('tags', it.tags.map((t) => link(t, `#${t}`, 'tag'))) : null,
+        it.aliases.length ? field('aka', h('span', { class: 'alias' }, it.aliases.join(', '))) : null,
+        it.description ? field('desc', h('span', { class: 'text' }, it.description)) : null,
+        it.notes ? field('notes', h('span', { class: 'text' }, it.notes)) : null,
+        field('updated', h('span', { class: 'muted' }, date(it.updated_at)))),
+      it.to_buy ? h('div', { class: 'preview-actions shopping-actions' },
+        action('x', 'bought: set qty', () => this.setQuantity(it), 'primary'),
+        action('d', 'won’t buy: delete', () => this.remove([it]), 'danger-text')) : null,
       h('div', { class: 'preview-actions' },
-        h('button', { type: 'button', class: 'button', onclick: () => this.edit(it) }, h('kbd', null, 'e'), 'Edit'),
-        h('button', { type: 'button', class: 'button', onclick: () => this.moveTargets([it]) }, h('kbd', null, 'm'), 'Move'),
-        h('button', { type: 'button', class: 'button', onclick: () => this.swap(it.slots[0]) }, h('kbd', null, 's'), 'Swap'),
-        h('button', { type: 'button', class: 'button danger-text', onclick: () => this.remove([it]) }, h('kbd', null, 'd'), 'Delete')),
+        action('e', 'edit', () => this.edit(it)),
+        action('m', 'move', () => this.moveTargets([it])),
+        action('s', 'swap', () => this.swap(it.slots[0])),
+        action('d', 'delete', () => this.remove([it]), 'danger-text')),
       it.slots[0] ? this.neighbours(it.slots[0], it) : null);
   }
 
-  /** − quantity + under the title; the number itself opens a field to type it. */
+  /** [−] 12 [+]: the number itself opens a field to type it. */
   quantityControl(it) {
-    const counted = it.quantity !== null && it.quantity !== undefined;
-    return h('div', { class: ['quantity-control', it.quantity === 0 && 'zero'] },
-      h('button', { type: 'button', class: 'qty-step', title: 'One less (-)', disabled: !counted || it.quantity === 0, onclick: () => this.changeQuantity(it, -1) }, '−'),
-      h('button', { type: 'button', class: 'qty-value', title: 'Set the quantity (x)', onclick: () => this.setQuantity(it) },
-        counted ? String(it.quantity) : 'not counted'),
+    return h('span', { class: ['quantity-control', quantityClass(it)] },
+      h('button', { type: 'button', class: 'qty-step', title: 'One less (-)', disabled: it.quantity === 0, onclick: () => this.changeQuantity(it, -1) }, '−'),
+      h('button', { type: 'button', class: 'qty-value', title: 'Set the quantity (x)', onclick: () => this.setQuantity(it) }, String(it.quantity)),
       h('button', { type: 'button', class: 'qty-step', title: 'One more (+)', onclick: () => this.changeQuantity(it, 1) }, '+'),
-      it.quantity === 0 ? h('span', { class: 'qty-note' }, 'on the shopping list') : null);
+      it.to_buy ? h('span', { class: 'qty-note' }, 'to buy') : null);
   }
 
   /** What else is in the slot, and what sits next to it. */
   neighbours(slot, self = null) {
     const s = parseSlot(slot);
     const others = (this.slotMap.get(slot) || []).filter((it) => it !== self);
-    const line = (target, label) => h('button', {
-      type: 'button',
-      class: 'neighbour',
-      onclick: () => { closeAllModals(); this.setQuery(target); },
-    }, h('span', { class: 'slot-pill' }, target), h('span', { class: ['neighbour-label', label === 'empty' && 'muted'] }, label));
+    const line = (target, label, onclick) => h('button', { type: 'button', class: 'neighbour', onclick },
+      h('span', { class: 'slot' }, target), h('span', { class: ['neighbour-label', label === 'empty' && 'muted'] }, label));
     const config = this.boxes.find((b) => b.id === s.box);
     const around = [s.number - 1, s.number + 1]
       .filter((n) => n >= 1 && (!config?.slots || n <= config.slots))
       .map((n) => slotName({ box: s.box, number: n }));
+    const open = (target) => () => { closeAllModals(); this.setQuery(target); };
     return h('section', { class: 'preview-section' },
-      others.length ? h('h3', null, `Also in ${slot}`) : null,
-      others.map((it) => h('button', { type: 'button', class: 'neighbour', onclick: () => this.focusItem(it) }, h('span', { class: 'neighbour-label' }, it.name))),
-      h('h3', null, 'Next to it'),
-      around.map((n) => line(n, slotSummary(this, n))));
+      h('h3', null, 'neighbours'),
+      others.map((it) => line(slot, it.name, () => this.focusItem(it))),
+      around.map((n) => line(n, slotSummary(this, n), open(n))));
   }
 
   openPreviewSheet() {
@@ -376,12 +360,12 @@ class App {
     el.className = `status-mode ${insert ? 'insert' : 'normal'}`;
     const total = this.rows.length;
     $('status-position').textContent = `${total ? this.cursor + 1 : 0} / ${total}`;
-    const pool = this.view === 'shopping' ? this.items.filter((it) => it.quantity === 0).length : this.items.length;
-    $('result-count').textContent = `${total}/${pool}`;
+    const toBuy = this.items.filter((it) => it.to_buy).length;
+    $('result-count').textContent = `${total}/${this.view === 'shopping' ? toBuy : this.items.length}`;
     $('tab-inventory').classList.toggle('active', this.view === 'inventory');
     $('tab-shopping').classList.toggle('active', this.view === 'shopping');
-    const toBuy = this.items.filter((it) => it.quantity === 0).length;
-    $('shopping-count').textContent = toBuy || '';
+    $('shopping-count').textContent = String(toBuy);
+    $('shopping-count').classList.toggle('alert', toBuy > 0);
     $('status-selection').textContent = this.selected.size ? `${this.selected.size} selected` : '';
   }
 
@@ -540,17 +524,17 @@ class App {
 
   /**
    * Adds delta to the quantity, showing it at once. The server applies the
-   * same delta atomically; its answer is shown once no other change is pending.
+   * same delta in a transaction; its answer is shown once no other change is
+   * pending.
    */
   async changeQuantity(item = this.cursorItem(), delta = 1) {
     if (!item) return;
     item = this.byId.get(item.id) || item;
-    const before = item.quantity ?? null;
-    const after = Math.max(0, (before ?? 0) + delta);
-    if (before === after) return;
+    const after = Math.max(0, item.quantity + delta);
+    if (after === item.quantity) return;
     const undo = this.snapshot([item]);
     this.pendingQuantity.set(item.id, (this.pendingQuantity.get(item.id) || 0) + 1);
-    this.putItem({ ...item, quantity: after });
+    this.putItem({ ...item, quantity: after, to_buy: shoppingFlag(item, after) });
     let updated;
     try {
       updated = await api.items.quantity(item.id, { delta });
@@ -562,33 +546,28 @@ class App {
     else this.pendingQuantity.delete(item.id);
     if (!updated) return this.load();
     if (!pending) this.putItem(updated);
-    this.quantityChanged(updated, before, undo);
+    this.quantityChanged(item, updated, undo);
   }
 
   async setQuantity(item = this.cursorItem()) {
     if (!item) return;
-    const answer = await openQuantityDialog(item);
-    if (!answer) return;
-    const { value } = answer;
-    const before = item.quantity ?? null;
+    const value = await openQuantityDialog(item);
+    if (value === null || value === item.quantity) return;
     const undo = this.snapshot([item]);
-    // "Stop counting" is a full update, since the quantity endpoint only takes numbers.
-    const updated = await this.run(() => (value === null
-      ? api.items.update(item.id, { ...item, quantity: null })
-      : api.items.quantity(item.id, { set: value })));
+    const updated = await this.run(() => api.items.quantity(item.id, { set: value }));
     if (!updated) return;
     this.putItem(updated);
-    this.quantityChanged(updated, before, undo);
+    this.quantityChanged(item, updated, undo);
   }
 
-  /** Records the undo and tells when an item enters or leaves the shopping list. */
-  quantityChanged(item, before, undo) {
-    if (item.quantity === 0 && before !== 0) {
-      this.done(`“${item.name}” is out: added to the shopping list`, undo);
-    } else if (before === 0 && item.quantity !== 0) {
-      this.done(`“${item.name}” restocked${item.quantity ? ` (${item.quantity})` : ''}`, undo);
+  /** Records the undo, and tells when an item joins or leaves the shopping list. */
+  quantityChanged(before, item, undo) {
+    if (item.to_buy && !before.to_buy) {
+      this.done(`${item.name}: 0 left, added to the shopping list`, undo);
+    } else if (before.to_buy && !item.to_buy) {
+      this.done(`${item.name}: restocked (${item.quantity})`, undo);
     } else {
-      this.undoStack.push({ message: `Quantity of “${item.name}”`, undo });
+      this.undoStack.push({ message: `quantity of ${item.name}`, undo });
     }
   }
 
@@ -771,10 +750,35 @@ class App {
   }
 }
 
-/** The quantity at the end of a row: "×12", or "0" in red; nothing when not counted. */
-function quantityBadge(it) {
-  if (it.quantity === null || it.quantity === undefined) return null;
-  return h('span', { class: ['qty', it.quantity === 0 && 'zero'], title: 'Quantity' }, it.quantity === 0 ? '0 left' : `×${it.quantity}`);
+/** Same rule as the server: on the list once the quantity drops to 0, off it above 0. */
+function shoppingFlag(item, quantity) {
+  return quantity === 0 && (item.to_buy || item.quantity > 0);
+}
+
+function quantityClass(it) {
+  if (it.to_buy) return 'to-buy';
+  return it.quantity === 0 ? 'zero' : '';
+}
+
+/** A span with the characters matching the search terms wrapped in <mark>. */
+function highlighted(className, text, terms) {
+  const { chars, marks } = highlight(text, terms);
+  const el = h('span', { class: className });
+  let run = '';
+  let runMarked = false;
+  const flush = () => {
+    if (run) el.append(runMarked ? h('mark', null, run) : run);
+    run = '';
+  };
+  chars.forEach((c, k) => {
+    if (marks[k] !== runMarked) {
+      flush();
+      runMarked = marks[k];
+    }
+    run += c;
+  });
+  flush();
+  return el;
 }
 
 /** The server's order: by first slot, items without a slot last, then by name. */

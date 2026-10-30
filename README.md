@@ -16,10 +16,11 @@ the system, and full Vim navigation.
 - **No duplicates:** while you type a new part, look-alike items are listed;
   pick one to add the new slots and tags to it instead of creating a twin.
 - **Hierarchical tags:** `#electronic/mcu` is found by `#electronic` and `#mcu`.
-- **Quantities:** `+` / `-` on an item, or `x` to type the count. Items you
-  don't bother counting simply have none.
-- **Shopping list:** an item whose quantity drops to 0 goes to the second tab.
-  Restock it when you bought some, or delete it if you won't buy it again.
+- **Quantities:** every item has a count (0 by default): `+` / `-` on an item,
+  or `x` to type it.
+- **Shopping list:** an item whose quantity *drops* to 0 goes to the second
+  tab (an item created at 0 does not). Set a quantity when you bought some, or
+  delete it if you won't buy it again.
 - **Boxes as grids:** see free slots, swap two slots with `s` or by dragging.
 - **Undo** for every change.
 
@@ -32,7 +33,7 @@ the system, and full Vim navigation.
 | `#electronic` | a tag and its sub-tags; `#mcu` also finds `electronic/mcu` |
 | `@A` | items in box A |
 | `-smd` | excludes items mentioning “smd” |
-| `is:out` | quantity down to 0 (what the shopping list shows) |
+| `is:out`, `is:tobuy` | quantity 0, or on the shopping list |
 | `is:empty` | free slots of the boxes whose size is set |
 | `is:untagged`, `is:unplaced` | items without tags, or without a slot |
 
@@ -48,7 +49,7 @@ ESP32-WROOM B-2 #electronic/mcu ~esp ~"wifi board" x5
 ```
 
 `B-2` is a slot (several allowed), `#tag` a tag, `~alias` another name (quoted
-for spaces), `x5` the quantity. Everything else is the name. Under the field, a
+for spaces), `x5` the quantity (0 when left out). Everything else is the name. Under the field, a
 guide shows what was understood for each field and, for the ones not filled
 yet, their syntax with an example; the field being typed is highlighted. A
 slot needs its dash (`A-12`) unless its box already exists, so names like
@@ -110,7 +111,8 @@ or `go run ./cmd/server`. Flags (or environment variables): `-host` (`HOST`),
 ## Import and export
 
 The menu exports the whole inventory as CSV (`name, slots, tags, aliases,
-quantity, description, notes`; an empty quantity means not counted; slots and tags separated by spaces, aliases by
+quantity, description, notes`; an empty quantity is 0 for a new item and
+keeps the count of an existing one; slots and tags separated by spaces, aliases by
 semicolons). Importing the same format merges rows into existing items of the
 same name.
 

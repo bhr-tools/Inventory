@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -49,12 +50,15 @@ func TestMigratesStockToQuantity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := map[string]*int{}
+	// "out" was the only level meaning "buy more": it is the only one on the
+	// shopping list. Every item now has a count.
+	got := map[string]string{}
 	for _, it := range items {
-		got[it.Name] = it.Quantity
+		got[it.Name] = fmt.Sprintf("%d %v", it.Quantity, it.ToBuy)
 	}
-	if len(got) != 3 || got["Bolts"] == nil || *got["Bolts"] != 0 || got["Nuts"] != nil || got["Glue"] != nil {
-		t.Fatalf("quantities after migration: %v", got)
+	want := map[string]string{"Bolts": "0 true", "Nuts": "0 false", "Glue": "0 false"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("after migration: %v, want %v", got, want)
 	}
 }
 
@@ -285,31 +289,35 @@ func intPtr(n int) *int { return &n }
 func TestChangeQuantity(t *testing.T) {
 	s := openTest(t)
 	counted := mustCreate(t, s, ItemInput{Name: "Resistor", Quantity: intPtr(2)})
-	uncounted := mustCreate(t, s, ItemInput{Name: "Velcro"})
-	if uncounted.Quantity != nil {
-		t.Fatalf("uncounted item has quantity %d", *uncounted.Quantity)
+	fresh := mustCreate(t, s, ItemInput{Name: "Velcro"})
+	if fresh.Quantity != 0 || fresh.ToBuy {
+		t.Fatalf("a new item starts at 0, off the shopping list: %+v", fresh)
 	}
-	q := func(it Item, err error) int {
+	state := func(it Item, err error) string {
 		t.Helper()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if it.Quantity == nil {
-			t.Fatal("quantity is nil")
+		return fmt.Sprintf("%d %v", it.Quantity, it.ToBuy)
+	}
+	steps := []struct {
+		id    string
+		delta int
+		set   *int
+		want  string
+	}{
+		{counted.ID, -1, nil, "1 false"},
+		{counted.ID, -5, nil, "0 true"},         // never below zero; dropping to 0 puts it on the list
+		{counted.ID, -1, nil, "0 true"},         // stays on the list
+		{counted.ID, 0, intPtr(40), "40 false"}, // restocked
+		{counted.ID, 0, intPtr(0), "0 true"},
+		{fresh.ID, -1, nil, "0 false"}, // already at 0: nothing dropped
+		{fresh.ID, 1, nil, "1 false"},
+	}
+	for i, st := range steps {
+		if got := state(s.ChangeQuantity(st.id, st.delta, st.set)); got != st.want {
+			t.Errorf("step %d: got %s, want %s", i, got, st.want)
 		}
-		return *it.Quantity
-	}
-	if got := q(s.ChangeQuantity(counted.ID, -1, nil)); got != 1 {
-		t.Errorf("2 - 1 = %d", got)
-	}
-	if got := q(s.ChangeQuantity(counted.ID, -5, nil)); got != 0 {
-		t.Errorf("never below zero: %d", got)
-	}
-	if got := q(s.ChangeQuantity(uncounted.ID, 1, nil)); got != 1 {
-		t.Errorf("an uncounted item starts at 0: %d", got)
-	}
-	if got := q(s.ChangeQuantity(counted.ID, 0, intPtr(40))); got != 40 {
-		t.Errorf("set: %d", got)
 	}
 	if _, err := s.ChangeQuantity(counted.ID, 0, intPtr(-2)); err == nil {
 		t.Error("negative set accepted")
@@ -317,11 +325,35 @@ func TestChangeQuantity(t *testing.T) {
 	if _, err := s.ChangeQuantity("missing", 1, nil); !errors.Is(err, ErrNotFound) {
 		t.Errorf("missing item: %v", err)
 	}
+
+	// The editor saves the quantity with the rest: same rules.
+	it, _ := s.Item(fresh.ID)
+	if got := state(s.UpdateItem(it.ID, ItemInput{Name: it.Name, Quantity: intPtr(0)})); got != "0 true" {
+		t.Errorf("edited down to 0: %s", got)
+	}
+	// Leaving the quantity out of an update keeps it.
+	if got := state(s.UpdateItem(it.ID, ItemInput{Name: "Velcro strip"})); got != "0 true" {
+		t.Errorf("update without quantity: %s", got)
+	}
+	// Restoring a snapshot puts the flag back as it was.
+	removed, _ := s.DeleteItems([]string{counted.ID})
+	if err := s.RestoreItems(removed); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(s.Item(counted.ID)); got != "0 true" {
+		t.Errorf("restored: %s", got)
+	}
 	// Import keeps the existing count unless the file gives one.
 	if _, _, err := s.ImportItems([]ItemInput{{Name: "resistor", Slots: []string{"A-1"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if got := q(s.Item(counted.ID)); got != 40 {
-		t.Errorf("import without quantity changed it to %d", got)
+	if got := state(s.Item(counted.ID)); got != "0 true" {
+		t.Errorf("import without quantity: %s", got)
+	}
+	if _, _, err := s.ImportItems([]ItemInput{{Name: "resistor", Quantity: intPtr(7)}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(s.Item(counted.ID)); got != "7 false" {
+		t.Errorf("import with quantity: %s", got)
 	}
 }

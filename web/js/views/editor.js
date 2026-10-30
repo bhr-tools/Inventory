@@ -23,7 +23,7 @@ export function openEditor(app, item) {
   const aliases = text(item.aliases.join(', '), 'Other names, separated by commas');
   const quantity = h('input', {
     type: 'number', class: 'input', min: 0, max: 1000000, step: 1, inputMode: 'numeric',
-    value: item.quantity ?? '', placeholder: 'Not counted',
+    value: item.quantity,
   });
   const description = h('textarea', { class: 'input textarea', value: item.description, placeholder: 'Value, size, reference…', rows: 2, maxLength: 2000 });
   const notes = h('textarea', { class: 'input textarea', value: item.notes, placeholder: 'Datasheet link, where to buy, pinout…', rows: 4, maxLength: 10000 });
@@ -70,7 +70,7 @@ export function openEditor(app, item) {
         slots: slotList,
         tags: tags.value.split(/\s+/).filter(Boolean),
         aliases: aliases.value.split(',').map((a) => a.trim()).filter(Boolean),
-        quantity: quantity.value.trim() === '' ? null : Number(quantity.value),
+        quantity: Number(quantity.value) || 0,
         description: description.value,
         notes: notes.value,
       });
@@ -88,7 +88,7 @@ export function openEditor(app, item) {
     field('Name', name, nameWarning),
     h('div', { class: 'field-pair' },
       field('Slots', slotBox),
-      field('Quantity', quantity, h('span', { class: 'field-info' }, 'Empty: not counted. 0: shopping list.'))),
+      field('Quantity', quantity, h('span', { class: 'field-info' }, 'dropping to 0: shopping list'))),
     field('Tags', tagBox),
     field('Also known as', aliases),
     field('Description', description),

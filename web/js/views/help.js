@@ -45,7 +45,7 @@ const SYNTAX = [
   ['#electronic', 'a tag and its sub-tags (#mcu finds electronic/mcu)'],
   ['@A', 'only box A'],
   ['-smd', 'without “smd”'],
-  ['is:out', 'quantity down to 0 (as the shopping list)'],
+  ['is:out  is:tobuy', 'quantity 0, or on the shopping list'],
   ['is:empty', 'free slots of the configured boxes'],
   ['is:untagged  is:unplaced', 'items without tags, or without a slot'],
 ];
@@ -54,7 +54,7 @@ const ADD = [
   ['A-12', 'slot (several allowed); A12 works once box A exists'],
   ['#tag', 'tag, #parent/child for a sub-tag'],
   ['~alias  ~"two words"', 'another name to find it by'],
-  ['x5', 'quantity; leave out to not count'],
+  ['x5', 'quantity (default 0)'],
 ];
 
 export function openHelp() {

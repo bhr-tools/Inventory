@@ -16,7 +16,7 @@ import (
 
 // CSV columns. Slots and tags never contain spaces, so they are separated by
 // spaces; aliases may, so they are separated by semicolons.
-// An empty quantity means the item is not counted.
+// An empty quantity is 0 for a new item and keeps the count of an existing one.
 var csvHeader = []string{"name", "slots", "tags", "aliases", "quantity", "description", "notes"}
 
 func (a *API) exportCSV(w http.ResponseWriter, r *http.Request) {
@@ -30,7 +30,7 @@ func (a *API) exportCSV(w http.ResponseWriter, r *http.Request) {
 	_ = out.Write(csvHeader)
 	for _, it := range items {
 		_ = out.Write([]string{it.Name, strings.Join(it.Slots, " "), strings.Join(it.Tags, " "),
-			strings.Join(it.Aliases, "; "), quantityText(it.Quantity), it.Description, it.Notes})
+			strings.Join(it.Aliases, "; "), strconv.Itoa(it.Quantity), it.Description, it.Notes})
 	}
 	out.Flush()
 	if err := out.Error(); err != nil {
@@ -128,11 +128,4 @@ func parseCSV(src io.Reader) ([]db.ItemInput, error) {
 		})
 	}
 	return inputs, nil
-}
-
-func quantityText(q *int) string {
-	if q == nil {
-		return ""
-	}
-	return strconv.Itoa(*q)
 }

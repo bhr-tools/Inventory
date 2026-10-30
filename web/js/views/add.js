@@ -78,11 +78,11 @@ export function openQuickAdd(app, { prefill = '' } = {}) {
         ? h('span', { class: 'guide-values' }, values)
         : h('span', { class: 'guide-help' }, h('code', null, syntax), ' ', example));
     guide.replaceChildren(
-      row('name', 'Name', p.name ? [chip('name', p.name)] : [], 'any words', 'what it is: ESP32-WROOM, Velcro strip'),
-      row('slot', 'Slots', p.slots.map((s) => chip('slot', `${s} · ${slotSummary(app, s)}`)), 'A-12', 'box and slot, several allowed'),
-      row('tag', 'Tags', p.tags.map((t) => chip('tag', app.tagCounts.has(t) ? `#${t}` : `#${t} (new)`)), '#tag', '#electronic/mcu for a sub-tag'),
-      row('alias', 'Aliases', p.aliases.map((a) => chip('alias', a)), '~alias', 'other names: ~esp ~"wifi board"'),
-      row('quantity', 'Quantity', p.quantity !== null ? [chip('quantity', String(p.quantity))] : [], 'x5', 'how many; leave out to not count'));
+      row('name', 'name', p.name ? [chip('name', p.name)] : [], 'any words', 'what it is: ESP32-WROOM, Velcro strip'),
+      row('slot', 'slots', p.slots.map((s) => chip('slot', `${s} · ${slotSummary(app, s)}`)), 'A-12', 'box and slot, several allowed'),
+      row('tag', 'tags', p.tags.map((t) => chip('tag', app.tagCounts.has(t) ? `#${t}` : `#${t} (new)`)), '#tag', '#electronic/mcu for a sub-tag'),
+      row('alias', 'aliases', p.aliases.map((a) => chip('alias', a)), '~alias', 'other names: ~esp ~"wifi board"'),
+      row('quantity', 'qty', p.quantity !== null ? [chip('quantity', String(p.quantity))] : [], 'x5', 'how many (default 0)'));
 
     const exact = p.name ? similar(p.name).find((m) => m.exact) : null;
     notice.hidden = !exact;
@@ -106,7 +106,7 @@ export function openQuickAdd(app, { prefill = '' } = {}) {
       tags: union(item.tags, p.tags),
       aliases: union(aliases, []),
       // New parts of a counted item add up.
-      quantity: p.quantity === null ? item.quantity : (item.quantity ?? 0) + p.quantity,
+      quantity: item.quantity + (p.quantity ?? 0),
     }));
     if (!updated) return;
     app.putItem(updated);
@@ -124,7 +124,7 @@ export function openQuickAdd(app, { prefill = '' } = {}) {
     const exact = similar(p.name).find((m) => m.exact);
     if (exact) return mergeInto(exact.item, false);
     try {
-      const item = await api.items.create({ name: p.name, slots: p.slots, tags: p.tags, aliases: p.aliases, quantity: p.quantity });
+      const item = await api.items.create({ name: p.name, slots: p.slots, tags: p.tags, aliases: p.aliases, quantity: p.quantity ?? 0 });
       app.putItem(item);
       app.done(`Added “${item.name}”${item.slots.length ? ` to ${item.slots.join(', ')}` : ''}`, () => api.items.remove([item.id]));
       reset();
