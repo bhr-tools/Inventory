@@ -7,25 +7,32 @@
 //   -smd              exclude items mentioning "smd"
 //   is:out            quantity 0; is:tobuy  on the shopping list
 //   is:untagged is:unplaced is:empty
+//   is:tool is:part   one kind; is:lost is:broken  tool status
+//   is:warranty       tools still under warranty; has:file  with attachments
+// Tools are also found by brand, reference and serial number (exact or prefix,
+// never fuzzy: a serial one character off is another tool), and any item by
+// the names of its attached files.
 //   A-12              a slot: its contents come first
 // Pure functions, tested under Node (tests/js).
 
 import { normalize, words, editDistance, typoBudget, similarity } from './text.js';
 import { parseSlot, slotName, compareSlots } from './slots.js';
 
-const FLAGS = new Set(['out', 'tobuy', 'untagged', 'unplaced', 'empty']);
+const FLAGS = new Set(['out', 'tobuy', 'untagged', 'unplaced', 'empty', 'tool', 'part', 'lost', 'broken', 'warranty']);
 
 // How much a match in each field counts.
-const WEIGHTS = { name: 1, alias: 0.9, tag: 0.7, description: 0.45, notes: 0.35 };
+const WEIGHTS = { name: 1, serial: 1, model: 0.9, alias: 0.9, brand: 0.8, tag: 0.7, file: 0.5, description: 0.45, notes: 0.35 };
 
-export function parseQuery(query) {
-  const q = { terms: [], excluded: [], tags: [], boxes: [], flags: [], slot: null, raw: query };
+/** today (YYYY-MM-DD) decides is:warranty; tests pass a fixed one. */
+export function parseQuery(query, { today = new Date().toISOString().slice(0, 10) } = {}) {
+  const q = { terms: [], excluded: [], tags: [], boxes: [], flags: [], slot: null, raw: query, today };
   for (const token of String(query ?? '').trim().split(/\s+/).filter(Boolean)) {
     const lower = token.toLowerCase();
     if (token.length > 1 && token.startsWith('#')) q.tags.push(normalize(token.slice(1)));
     else if (token.length > 1 && token.startsWith('@')) q.boxes.push(token.slice(1).toUpperCase());
     else if (token.length > 1 && token.startsWith('-') && !/^-\d/.test(token)) q.excluded.push(normalize(token.slice(1)));
     else if (lower.startsWith('is:') && FLAGS.has(lower.slice(3))) q.flags.push(lower.slice(3));
+    else if (lower === 'has:file' || lower === 'has:files') q.flags.push('file');
     else {
       const slot = parseSlot(token);
       if (slot && !q.slot) q.slot = slotName(slot);
@@ -45,7 +52,24 @@ export function indexItem(item) {
     tags: (item.tags || []).map((t) => ({ text: normalize(t), words: words(t.replace(/\//g, ' ')) })),
     description: field(item.description),
     notes: field(item.notes),
+    brand: field(item.brand),
+    model: field(item.model),
+    serial: compact(item.serial),
+    files: (item.attachments || []).map((a) => field(a.filename)),
   };
+}
+
+/** Serials compare without case, spaces or dashes: "SN 12-34" is "sn1234". */
+function compact(text) {
+  return normalize(text).replace(/[\s\-_./]/g, '');
+}
+
+function serialScore(term, serial) {
+  if (!serial) return 0;
+  const t = compact(term);
+  if (t.length < 3) return 0;
+  if (serial === t) return 1;
+  return serial.startsWith(t) ? 0.9 : 0;
 }
 
 /** Score in [0, 1] of one query term against one field. */
@@ -98,6 +122,10 @@ function bestFieldScore(term, idx) {
   let best = WEIGHTS.name * termScore(term, idx.name);
   for (const a of idx.aliases) best = Math.max(best, WEIGHTS.alias * termScore(term, a));
   for (const t of idx.tags) best = Math.max(best, WEIGHTS.tag * termScore(term, t));
+  if (idx.serial) best = Math.max(best, WEIGHTS.serial * serialScore(term, idx.serial));
+  if (idx.model?.text) best = Math.max(best, WEIGHTS.model * termScore(term, idx.model));
+  if (idx.brand?.text) best = Math.max(best, WEIGHTS.brand * termScore(term, idx.brand));
+  for (const f of idx.files || []) best = Math.max(best, WEIGHTS.file * termScore(term, f, { fuzzy: false }));
   if (best < 0.9) {
     best = Math.max(best, WEIGHTS.description * termScore(term, idx.description, { fuzzy: false }));
     best = Math.max(best, WEIGHTS.notes * termScore(term, idx.notes, { fuzzy: false }));
@@ -106,7 +134,8 @@ function bestFieldScore(term, idx) {
 }
 
 function mentions(idx, word) {
-  return [idx.name, ...idx.aliases, ...idx.tags, idx.description, idx.notes].some((f) => f.text.includes(word));
+  return [idx.name, ...idx.aliases, ...idx.tags, idx.description, idx.notes, idx.brand, idx.model, ...(idx.files || [])]
+    .some((f) => f?.text.includes(word));
 }
 
 /** True when the item has the tag, one of its sub-tags, or a tag segment starting with it. */
@@ -127,6 +156,10 @@ function passesFilters(idx, q) {
     if (f === 'tobuy' && !it.to_buy) return false;
     if (f === 'untagged' && it.tags.length) return false;
     if (f === 'unplaced' && it.slots.length) return false;
+    if ((f === 'tool' || f === 'part') && (it.kind || 'part') !== f) return false;
+    if ((f === 'lost' || f === 'broken') && it.status !== f) return false;
+    if (f === 'warranty' && !(it.warranty_until && it.warranty_until >= q.today)) return false;
+    if (f === 'file' && !(it.attachments || []).length) return false;
   }
   return true;
 }

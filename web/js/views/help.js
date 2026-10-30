@@ -18,6 +18,8 @@ const SECTIONS = [
     [['a'], 'Add parts'],
     [['+', '-'], 'One more / one less'],
     [['x'], 'Type the quantity'],
+    [['f'], 'Attach files (or drop them on the details)'],
+    [['o'], 'Open the first file'],
     [['m'], 'Move to a slot'],
     [['s'], 'Swap two slots'],
     [['t'], 'Add or remove tags'],
@@ -25,7 +27,7 @@ const SECTIONS = [
     [['u'], 'Undo'],
   ]],
   ['Views', [
-    [['1', '2'], 'Inventory / Shopping list (& é on AZERTY)'],
+    [['1', '2', '3'], 'Parts / tools / shopping (& é " on AZERTY)'],
     [['b'], 'Boxes, as grids'],
     [['T'], 'Tags'],
     [['?'], 'This help'],
@@ -48,6 +50,9 @@ const SYNTAX = [
   ['is:out  is:tobuy', 'quantity 0, or on the shopping list'],
   ['is:empty', 'free slots of the configured boxes'],
   ['is:untagged  is:unplaced', 'items without tags, or without a slot'],
+  ['makita  sn12345', 'tools by brand, reference or serial (from its start)'],
+  ['is:lost  is:broken', 'tools by status'],
+  ['is:warranty  has:file', 'still under warranty; with attachments'],
 ];
 
 const ADD = [
@@ -55,6 +60,8 @@ const ADD = [
   ['#tag', 'tag, #parent/child for a sub-tag'],
   ['~alias  ~"two words"', 'another name to find it by'],
   ['x5', 'quantity (default 0)'],
+  ['brand:  ref:  sn:', 'tools: brand, reference, serial (quote spaces: sn:"A1 2")'],
+  ['until:2027-03', 'tools: warranty end (2027, 2027-03 or 2027-03-31)'],
 ];
 
 export function openHelp() {

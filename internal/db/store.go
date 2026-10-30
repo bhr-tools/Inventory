@@ -39,7 +39,8 @@ func (e *DuplicateError) Error() string {
 
 // Store is safe for concurrent use.
 type Store struct {
-	db *sql.DB
+	db    *sql.DB
+	files string // directory of the attachment files, next to the database
 }
 
 // querier is implemented by both *sql.DB and *sql.Tx.
@@ -63,7 +64,7 @@ func Open(path string) (*Store, error) {
 	// this costs nothing and rules out "database is locked" errors.
 	sqlDB.SetMaxOpenConns(1)
 
-	s := &Store{db: sqlDB}
+	s := &Store{db: sqlDB, files: filepath.Join(filepath.Dir(path), "attachments")}
 	if err := s.migrate(); err != nil {
 		sqlDB.Close()
 		return nil, fmt.Errorf("migrate database: %w", err)
@@ -156,6 +157,29 @@ var migrations = []string{
 	`ALTER TABLE items ADD COLUMN to_buy INTEGER NOT NULL DEFAULT 0;
 	UPDATE items SET to_buy = 1 WHERE quantity = 0;
 	UPDATE items SET quantity = 0 WHERE quantity IS NULL;`,
+
+	// 4: tools (a register: no slot, no count) and attached files. Attachments
+	// have no foreign key: deleting an item keeps them (orphaned_at) so undo
+	// brings them back; a purge removes them later.
+	`ALTER TABLE items ADD COLUMN kind TEXT NOT NULL DEFAULT 'part';
+	ALTER TABLE items ADD COLUMN brand TEXT NOT NULL DEFAULT '';
+	ALTER TABLE items ADD COLUMN model TEXT NOT NULL DEFAULT '';
+	ALTER TABLE items ADD COLUMN serial TEXT NOT NULL DEFAULT '';
+	ALTER TABLE items ADD COLUMN warranty_until TEXT NOT NULL DEFAULT '';
+	ALTER TABLE items ADD COLUMN status TEXT NOT NULL DEFAULT '';
+
+	CREATE TABLE attachments (
+		id TEXT PRIMARY KEY,
+		item_id TEXT NOT NULL,
+		filename TEXT NOT NULL,
+		content_type TEXT NOT NULL,
+		size INTEGER NOT NULL,
+		label TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL,
+		deleted_at TEXT NOT NULL DEFAULT '',
+		orphaned_at TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX idx_attachments_item ON attachments(item_id);`,
 }
 
 func (s *Store) migrate() error {

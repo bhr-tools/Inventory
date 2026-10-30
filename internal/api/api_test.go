@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -83,7 +84,7 @@ func TestCSVRoundTrip(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/api/export", nil))
 	exported := rec.Body.String()
-	if !strings.HasPrefix(exported, "name,slots,tags,aliases") || !strings.Contains(exported, "velcro; hook and loop") {
+	if !strings.HasPrefix(exported, "name,kind,slots,tags,aliases") || !strings.Contains(exported, "velcro; hook and loop") {
 		t.Fatalf("export: %q", exported)
 	}
 
@@ -110,5 +111,122 @@ func TestCrossSiteRefused(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != 403 {
 		t.Fatalf("got %d", rec.Code)
+	}
+}
+
+// upload posts files as multipart/form-data, like the browser does.
+func upload(t *testing.T, h http.Handler, itemID string, files map[string][]byte) (int, map[string]any) {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	for name, content := range files {
+		fw, err := mw.CreateFormFile("file", name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fw.Write(content)
+	}
+	mw.Close()
+	req := httptest.NewRequest("POST", "/api/items/"+itemID+"/attachments", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return rec.Code, out
+}
+
+func TestAttachments(t *testing.T) {
+	store, err := db.Open(filepath.Join(t.TempDir(), "files.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	// With a password set, only a session or a signed link opens a file.
+	if err := store.SetInitialPassword("secret"); err != nil {
+		t.Fatal(err)
+	}
+	h := New(store, false).Handler()
+	tool, err := store.CreateItem(db.ItemInput{Kind: "tool", Name: "Multimeter", Brand: "Fluke", Model: "117", Serial: "SN-42"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authed := New(store, true).Handler() // same store, no login needed: for uploads
+
+	pdf := []byte("%PDF-1.4\n% invoice\n")
+	code, item := upload(t, authed, tool.ID, map[string][]byte{"Facture Fluke.pdf": pdf, "evil.html": []byte("<html><script>alert(1)</script>")})
+	if code != 201 {
+		t.Fatalf("upload: %d %v", code, item)
+	}
+	atts := item["attachments"].([]any)
+	if len(atts) != 2 {
+		t.Fatalf("attachments: %v", atts)
+	}
+	byName := map[string]map[string]any{}
+	for _, a := range atts {
+		m := a.(map[string]any)
+		byName[m["filename"].(string)] = m
+	}
+	invoice, evil := byName["Facture Fluke.pdf"], byName["evil.html"]
+	if invoice["content_type"] != "application/pdf" || invoice["label"] != "invoice" {
+		t.Errorf("invoice: %v", invoice)
+	}
+	if evil["content_type"] != "application/octet-stream" {
+		t.Errorf("an HTML upload must not keep its type: %v", evil)
+	}
+
+	get := func(path string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+		return rec
+	}
+	// Without a session: refused, unless the link is signed.
+	if rec := get("/api/attachments/" + invoice["id"].(string)); rec.Code != 401 {
+		t.Errorf("unsigned link without session: %d", rec.Code)
+	}
+	rec := get(invoice["url"].(string))
+	if rec.Code != 200 || !bytes.Equal(rec.Body.Bytes(), pdf) {
+		t.Fatalf("signed link: %d %q", rec.Code, rec.Body.String())
+	}
+	if cd := rec.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, "inline") {
+		t.Errorf("a PDF opens in the viewer: %q", cd)
+	}
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "sandbox") {
+		t.Errorf("files are sandboxed: %q", csp)
+	}
+	rec = get(evil["url"].(string))
+	if cd := rec.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, "attachment") || rec.Header().Get("Content-Type") != "application/octet-stream" {
+		t.Errorf("HTML is downloaded, never rendered: %q %q", cd, rec.Header().Get("Content-Type"))
+	}
+	tampered := strings.Replace(invoice["url"].(string), "sig=", "sig=0", 1)
+	if rec := get(tampered); rec.Code != 401 {
+		t.Errorf("tampered link: %d", rec.Code)
+	}
+
+	// Rename, delete and restore.
+	if code, res := call(t, authed, "PATCH", "/api/attachments/"+evil["id"].(string), `{"filename":"notes.txt","label":"manual"}`); code != 200 {
+		t.Fatalf("rename: %d %v", code, res)
+	}
+	if code, res := call(t, authed, "DELETE", "/api/attachments/"+evil["id"].(string), ""); code != 200 || len(res["attachments"].([]any)) != 1 {
+		t.Fatalf("delete: %d %v", code, res)
+	}
+	if code, res := call(t, authed, "POST", "/api/attachments/"+evil["id"].(string)+"/restore", "{}"); code != 200 || len(res["attachments"].([]any)) != 2 {
+		t.Fatalf("restore: %d %v", code, res)
+	}
+
+	// Limits.
+	if code, _ := upload(t, authed, tool.ID, map[string][]byte{"empty.pdf": {}}); code != 400 {
+		t.Errorf("empty file: %d", code)
+	}
+	big := bytes.Repeat([]byte("x"), db.MaxAttachmentSize+1)
+	if code, _ := upload(t, authed, tool.ID, map[string][]byte{"big.bin": big}); code != 400 {
+		t.Errorf("file over the limit: %d", code)
+	}
+	if code, _ := upload(t, authed, "missing", map[string][]byte{"a.pdf": pdf}); code != 404 {
+		t.Errorf("unknown item: %d", code)
+	}
+	// Tools are not counted.
+	if code, _ := call(t, authed, "POST", "/api/items/"+tool.ID+"/quantity", `{"delta":1}`); code != 400 {
+		t.Errorf("tool quantity: %d", code)
 	}
 }

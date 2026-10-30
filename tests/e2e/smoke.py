@@ -10,6 +10,7 @@ from playwright.sync_api import sync_playwright, expect
 BASE = os.environ.get("BASE_URL", "http://127.0.0.1:18931")
 OUT = os.environ.get("OUT", "out")
 PASSWORD = "correct horse"
+PDF = b"%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n"
 errors = []
 
 SEED = [
@@ -227,7 +228,7 @@ def desktop(browser):
     # The shopping list: search inside it, restock one, delete the other.
     page.keyboard.press("Escape")
     page.keyboard.press("Escape")
-    azerty(page, "é")
+    azerty(page, '"')
     expect(page.locator("#tab-shopping")).to_have_class("tab active")
     # Only the two items whose quantity dropped to 0: the ones created at 0 stay off the list.
     expect(rows(page)).to_have_count(2)
@@ -247,7 +248,7 @@ def desktop(browser):
     expect(page.locator("#shopping-count")).to_have_text("0")
     expect(page.locator(".empty-state")).to_contain_text("nothing to buy")
     azerty(page, "&")
-    expect(page.locator("#tab-inventory")).to_have_class("tab active")
+    expect(page.locator("#tab-parts")).to_have_class("tab active")
 
     # Bulk: select two items, tag them.
     type_search(page, "#capacitor")
@@ -269,6 +270,91 @@ def desktop(browser):
     expect(page.locator(".tag-row")).not_to_have_count(0)
     shot(page, "08-tags")
     page.keyboard.press("Escape")
+
+    # Tools: a register with files.
+    page.keyboard.press("Escape")
+    type_search(page, "")
+    page.keyboard.press("Escape")
+    azerty(page, "é")
+    expect(page.locator("#tab-tools")).to_have_class("tab active")
+    expect(page.locator(".empty-state")).to_contain_text("no tool yet")
+    page.keyboard.press("a")
+    expect(page.locator(".quick-add .modal-title")).to_have_text("Add a tool")
+    qa = page.locator(".quick-input")
+    qa.type('Perceuse visseuse brand:Makita ref:DHP482 sn:"SN 4821-77" until:2027-03 #power')
+    guide = page.locator(".quick-guide")
+    expect(guide.locator(".chip.brand")).to_have_text("Makita")
+    expect(guide.locator(".chip.serial")).to_have_text("SN 4821-77")
+    expect(guide.locator(".chip.warranty")).to_have_text("2027-03-31")
+    shot(page, "15-tool-add")
+    qa.press("Enter")
+    expect(page.locator(".quick-add")).to_have_count(0)
+    expect(rows(page)).to_have_count(1)
+    expect(rows(page).first).to_contain_text("SN 4821-77")
+    expect(page.locator(".preview-title")).to_have_text("Perceuse visseuse")
+
+    # f opens the file picker; the invoice shows in the files with its label.
+    with page.expect_file_chooser() as chooser:
+        page.keyboard.press("f")
+    chooser.value.set_files({"name": "Facture Makita.pdf", "mimeType": "application/pdf", "buffer": PDF})
+    expect(page.locator(".toast")).to_contain_text("1 file attached")
+    file_link = page.locator(".preview .file-name")
+    expect(file_link).to_have_text("Facture Makita.pdf")
+    expect(page.locator(".preview .file-label")).to_have_text("invoice")
+    expect(rows(page).first.locator(".row-files")).to_have_text("1")
+
+    # Dropping a file on the details attaches it too.
+    page.evaluate("""() => {
+        const dt = new DataTransfer();
+        dt.items.add(new File(['manual text'], 'notice DHP482.txt', { type: 'text/plain' }));
+        const pane = document.getElementById('preview');
+        for (const type of ['dragenter', 'dragover', 'drop']) {
+          pane.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }));
+        }
+    }""")
+    expect(page.locator(".preview .file-row")).to_have_count(2)
+    expect(page.locator(".preview .file-label").nth(1)).to_have_text("manual")
+    shot(page, "16-tool-files")
+
+    # The signed link opens the file without the session (as iOS's viewer does).
+    url = file_link.first.get_attribute("href")
+    stranger = browser.new_context()
+    res = stranger.request.get(f"{BASE}{url}")
+    assert res.status == 200 and res.body() == PDF, res.status
+    assert res.headers["content-type"] == "application/pdf"
+    assert stranger.request.get(f"{BASE}{url.split('?')[0]}").status == 401
+    stranger.close()
+
+    # Found by serial, from any tab; parts point to the tools.
+    azerty(page, "&")
+    type_search(page, "makita")
+    expect(page.locator(".empty-state")).to_contain_text("1 in tools")
+    page.locator(".empty-state .link-button").click()
+    expect(page.locator("#tab-tools")).to_have_class("tab active")
+    type_search(page, "SN4821")
+    expect(rows(page)).to_have_count(1)
+
+    # Lost: it stays recorded, with its invoice.
+    page.keyboard.press("Escape")
+    page.keyboard.press("e")
+    expect(page.locator(".editor-modal .modal-title")).to_have_text("Edit tool")
+    page.locator(".editor select").nth(1).select_option("lost")
+    page.keyboard.press("Control+Enter")
+    expect(page.locator(".toast")).to_contain_text("Saved")
+    type_search(page, "is:lost")
+    expect(rows(page)).to_have_count(1)
+    expect(rows(page).first.locator(".status")).to_have_text("lost")
+
+    # Deleting the tool and undoing keeps its files.
+    page.keyboard.press("Escape")
+    page.keyboard.press("d")
+    expect(rows(page)).to_have_count(0)
+    page.keyboard.press("u")
+    expect(rows(page)).to_have_count(1)
+    expect(page.locator(".preview .file-row")).to_have_count(2)
+    type_search(page, "")
+    page.keyboard.press("Escape")
+    azerty(page, "&")
 
     page.keyboard.press("?")
     shot(page, "09-help")
@@ -346,6 +432,19 @@ def phone(browser, state):
     expect(page.locator(".toast")).to_contain_text("Swapped A-11 and A-14")
     expect(page.locator(".grid .cell").nth(13)).to_contain_text("Résistance 10k")
     shot(page, "14-phone-grid")
+
+    # Tools on the phone: the sheet takes a file from the picker and shows it at once.
+    page.locator(".modal-header .icon-button").last.tap()
+    page.locator("#tab-tools").tap()
+    rows(page).first.tap()
+    sheet = page.locator(".preview-sheet")
+    expect(sheet.locator(".file-row")).to_have_count(2)
+    with page.expect_file_chooser() as chooser:
+        sheet.locator(".drop-zone").tap()
+    chooser.value.set_files({"name": "photo.jpg", "mimeType": "image/jpeg", "buffer": b"\xff\xd8\xff\xe0" + b"0" * 64})
+    expect(sheet.locator(".file-row")).to_have_count(3)
+    expect(sheet.locator(".file-label").nth(2)).to_have_text("photo")
+    shot(page, "17-phone-tool")
     ctx.close()
 
 

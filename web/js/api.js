@@ -75,6 +75,38 @@ export const api = {
     tag: (ids, add, remove) => post('/api/items/tag', { ids, add, remove }),
   },
 
+  attachments: {
+    /** Answers the item. */
+    rename: (attId, filename) => request('PATCH', `/api/attachments/${id(attId)}`, { filename }),
+    relabel: (attId, label) => request('PATCH', `/api/attachments/${id(attId)}`, { label }),
+    remove: (attId) => del(`/api/attachments/${id(attId)}`),
+    restore: (attId) => post(`/api/attachments/${id(attId)}/restore`),
+  },
+
+  /**
+   * Uploads files to an item; onProgress gets the fraction sent (0 to 1).
+   * XHR rather than fetch: fetch cannot report upload progress.
+   */
+  upload(itemId, files, onProgress) {
+    return new Promise((resolve, reject) => {
+      const form = new FormData();
+      for (const f of files) form.append('file', f, f.name);
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `/api/items/${id(itemId)}/attachments`);
+      xhr.withCredentials = true;
+      xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
+      xhr.onload = () => {
+        let data = null;
+        try { data = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(data);
+        if (xhr.status === 401) unauthorizedHandler();
+        reject(new ApiError(data?.error || `Upload failed (${xhr.status})`, xhr.status, data));
+      };
+      xhr.onerror = () => reject(new ApiError('Cannot reach the server. Check your connection.', 0));
+      xhr.send(form);
+    });
+  },
+
   swapSlots: (a, b) => post('/api/slots/swap', { a, b }),
   renameTag: (from, to) => post('/api/tags/rename', { from, to }),
   deleteTag: (tag) => post('/api/tags/delete', { tag }),

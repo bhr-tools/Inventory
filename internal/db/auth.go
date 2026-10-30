@@ -175,3 +175,25 @@ func (s *Store) DeleteSession(token string) error {
 func sessionCutoff() string {
 	return time.Now().UTC().Add(-SessionLifetime).Format(time.DateTime)
 }
+
+// LinkSecret returns the key that signs file links, creating it on first use.
+// Links signed with it work without the session cookie, which a home screen
+// app on iOS does not share with the viewer it opens files in.
+func (s *Store) LinkSecret() ([]byte, error) {
+	var stored string
+	err := s.db.QueryRow(`SELECT value FROM auth_settings WHERE key = 'link_secret'`).Scan(&stored)
+	if err == sql.ErrNoRows {
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			return nil, err
+		}
+		if _, err := s.db.Exec(`INSERT OR IGNORE INTO auth_settings (key, value) VALUES ('link_secret', ?)`, hex.EncodeToString(b)); err != nil {
+			return nil, err
+		}
+		err = s.db.QueryRow(`SELECT value FROM auth_settings WHERE key = 'link_secret'`).Scan(&stored)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return hex.DecodeString(stored)
+}

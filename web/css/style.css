@@ -192,8 +192,9 @@ select.input { cursor: pointer; }
   color: var(--rp-muted);
 }
 .tab::before { color: var(--rp-hl-high); }
-#tab-inventory::before { content: "1"; }
-#tab-shopping::before { content: "2"; }
+#tab-parts::before { content: "1"; }
+#tab-tools::before { content: "2"; }
+#tab-shopping::before { content: "3"; }
 .tab:hover { color: var(--rp-text); }
 .tab.active { background: var(--rp-surface); color: var(--rp-text); box-shadow: inset 0 -2px 0 var(--accent); }
 .tab.active::before { color: var(--accent); }
@@ -248,6 +249,65 @@ select.input { cursor: pointer; }
 .row.in-slot .row-name { font-weight: 700; }
 .row-tags { color: var(--rp-iris); font-size: 0.85rem; opacity: 0.75; }
 .row-empty .row-name { color: var(--rp-muted); }
+
+/* The tools register: name | brand ref | serial | warranty | files. */
+.row.tool-row { grid-template-columns: 3px minmax(0, 1.4fr) minmax(0, 1fr) 16ch 11ch 5ch; }
+.row-name-cell { display: flex; align-items: baseline; gap: 8px; }
+.row-name-cell .row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.row-brand { color: var(--rp-subtle); }
+.row-serial { color: var(--rp-foam); }
+.row-warranty { color: var(--rp-muted); }
+.row-warranty.valid { color: var(--rp-pine); }
+.row-warranty.expired { color: var(--rp-muted); text-decoration: line-through; }
+.row-files { color: var(--rp-gold); }
+.row-files.none { color: var(--rp-muted); }
+.row.retired .row-name { color: var(--rp-muted); }
+.status { flex-shrink: 0; font-size: 0.78rem; }
+.status::before { content: "["; }
+.status::after { content: "]"; }
+.status.lost, .status.broken { color: var(--rp-love); }
+.status.ok { color: var(--rp-pine); }
+.status.ok::before, .status.ok::after { content: none; }
+.warranty.valid { color: var(--rp-pine); }
+.warranty.expired { color: var(--rp-muted); }
+.copyable { user-select: all; -webkit-user-select: all; }
+.serial { color: var(--rp-foam); }
+
+/* Files */
+.files .file-row {
+  display: grid;
+  grid-template-columns: 10ch minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  border-bottom: 1px solid var(--rp-hl-low);
+}
+.file-label { color: var(--rp-iris); text-align: left; }
+.file-label::before { content: "["; color: var(--rp-muted); }
+.file-label::after { content: "]"; color: var(--rp-muted); }
+.file-label.invoice { color: var(--rp-gold); }
+.file-label.other { color: var(--rp-muted); }
+.file-name { overflow: hidden; color: var(--rp-text); text-overflow: ellipsis; white-space: nowrap; }
+.file-name:hover { color: var(--accent); }
+.file-meta { color: var(--rp-muted); font-size: 0.8rem; }
+.file-action { color: var(--rp-muted); font-size: 0.8rem; }
+.file-action:hover { color: var(--rp-text); }
+.file-action.danger:hover { color: var(--danger); }
+.drop-zone {
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px dashed var(--rp-hl-high);
+  color: var(--rp-muted);
+  text-align: left;
+}
+.drop-zone:hover { border-color: var(--accent); color: var(--accent); }
+.preview.dropping { box-shadow: inset 0 0 0 2px var(--accent); }
+.preview.dropping .drop-zone { border-color: var(--accent); color: var(--accent); }
+.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.chip.brand, .chip.model { color: var(--rp-subtle); }
+.chip.serial { color: var(--rp-foam); }
+.chip.warranty { color: var(--rp-pine); }
+.chip.error { color: var(--danger); }
 
 .slot-banner {
   display: flex;
@@ -593,6 +653,15 @@ html, button, input, select, textarea, .row, .cell { touch-action: manipulation;
   .row-tags { display: none; }
   .row.thead { height: 28px; }
   .row.thead span:last-child { display: none; }
+  .row.tool-row { grid-template-columns: 3px minmax(0, 1fr) 12ch 4ch; }
+  .row.tool-row .row-brand, .row.tool-row.thead span:nth-child(3) { display: none; }
+  .row.tool-row .row-warranty, .row.tool-row.thead span:nth-child(5) { display: none; }
+  .row.tool-row.thead span:last-child { display: block; }
+  .field-grid { grid-template-columns: 1fr; }
+  .files .file-row { min-height: 44px; grid-template-columns: 9ch minmax(0, 1fr) auto auto; }
+  .files .file-meta { display: none; }
+  .file-action { padding: 8px 4px; }
+  .drop-zone { min-height: 44px; }
   .slot-banner { height: 44px; }
 
   .button { height: 40px; padding: 0 12px; }

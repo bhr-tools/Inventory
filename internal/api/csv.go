@@ -17,7 +17,10 @@ import (
 // CSV columns. Slots and tags never contain spaces, so they are separated by
 // spaces; aliases may, so they are separated by semicolons.
 // An empty quantity is 0 for a new item and keeps the count of an existing one.
-var csvHeader = []string{"name", "slots", "tags", "aliases", "quantity", "description", "notes"}
+// kind is part or tool; tools fill brand, model, serial, warranty_until
+// (YYYY-MM-DD) and status (broken, lost or empty). Attachments are not in the
+// file: the server backups hold them.
+var csvHeader = []string{"name", "kind", "slots", "tags", "aliases", "quantity", "brand", "model", "serial", "warranty_until", "status", "description", "notes"}
 
 func (a *API) exportCSV(w http.ResponseWriter, r *http.Request) {
 	items, err := a.store.Items()
@@ -29,8 +32,9 @@ func (a *API) exportCSV(w http.ResponseWriter, r *http.Request) {
 	out := csv.NewWriter(&buf)
 	_ = out.Write(csvHeader)
 	for _, it := range items {
-		_ = out.Write([]string{it.Name, strings.Join(it.Slots, " "), strings.Join(it.Tags, " "),
-			strings.Join(it.Aliases, "; "), strconv.Itoa(it.Quantity), it.Description, it.Notes})
+		_ = out.Write([]string{it.Name, it.Kind, strings.Join(it.Slots, " "), strings.Join(it.Tags, " "),
+			strings.Join(it.Aliases, "; "), strconv.Itoa(it.Quantity), it.Brand, it.Model, it.Serial,
+			it.WarrantyUntil, it.Status, it.Description, it.Notes})
 	}
 	out.Flush()
 	if err := out.Error(); err != nil {
@@ -118,13 +122,19 @@ func parseCSV(src io.Reader) ([]db.ItemInput, error) {
 			quantity = &n
 		}
 		inputs = append(inputs, db.ItemInput{
-			Name:        field("name"),
-			Slots:       strings.Fields(field("slots")),
-			Tags:        strings.Fields(field("tags")),
-			Aliases:     strings.Split(field("aliases"), ";"),
-			Quantity:    quantity,
-			Description: field("description"),
-			Notes:       field("notes"),
+			Kind:          field("kind"),
+			Brand:         field("brand"),
+			Model:         field("model"),
+			Serial:        field("serial"),
+			WarrantyUntil: field("warranty_until"),
+			Status:        field("status"),
+			Name:          field("name"),
+			Slots:         strings.Fields(field("slots")),
+			Tags:          strings.Fields(field("tags")),
+			Aliases:       strings.Split(field("aliases"), ";"),
+			Quantity:      quantity,
+			Description:   field("description"),
+			Notes:         field("notes"),
 		})
 	}
 	return inputs, nil

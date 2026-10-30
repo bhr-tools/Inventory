@@ -46,14 +46,16 @@ func main() {
 	}
 	defer store.Close()
 
+	go purgeAttachments(store)
+
 	addr := net.JoinHostPort(*host, strconv.Itoa(*port))
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           newHandler(store, *noAuth),
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       60 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		// No server-wide read/write timeouts: deadlines() sets them per request,
+		// and file transfers extend theirs.
+		IdleTimeout: 120 * time.Second,
 	}
 
 	go func() {
@@ -86,7 +88,33 @@ func newHandler(store *db.Store, noAuth bool) http.Handler {
 		fmt.Fprintln(w, "ok")
 	})
 	mux.Handle("/", noCache(http.FileServerFS(web.Files)))
-	return securityHeaders(mux)
+	return deadlines(securityHeaders(mux))
+}
+
+// requestTimeout bounds reading the request and writing the answer. Handlers
+// moving files extend it with http.ResponseController.
+const requestTimeout = 60 * time.Second
+
+func deadlines(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rc := http.NewResponseController(w)
+		_ = rc.SetReadDeadline(time.Now().Add(requestTimeout))
+		_ = rc.SetWriteDeadline(time.Now().Add(requestTimeout))
+		next.ServeHTTP(w, r)
+	})
+}
+
+// purgeAttachments removes, once a day, the files deleted (or whose item was
+// deleted) more than db.AttachmentRetention ago.
+func purgeAttachments(store *db.Store) {
+	for {
+		if n, err := store.PurgeAttachments(time.Now().Add(-db.AttachmentRetention)); err != nil {
+			log.Printf("purge attachments: %v", err)
+		} else if n > 0 {
+			log.Printf("purged %d attachments", n)
+		}
+		time.Sleep(24 * time.Hour)
+	}
 }
 
 // noCache makes browsers revalidate the web app on every load, so an upgrade

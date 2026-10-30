@@ -4,9 +4,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 )
 
 func openTest(t *testing.T) *Store {
@@ -355,5 +358,100 @@ func TestChangeQuantity(t *testing.T) {
 	}
 	if got := state(s.Item(counted.ID)); got != "7 false" {
 		t.Errorf("import with quantity: %s", got)
+	}
+}
+
+func TestTools(t *testing.T) {
+	s := openTest(t)
+	tool := mustCreate(t, s, ItemInput{Kind: KindTool, Name: "Drill", Brand: " Makita ", Model: "DHP482", Serial: "A1 2", WarrantyUntil: "2027-03-31"})
+	if tool.Kind != KindTool || tool.Brand != "Makita" || tool.Serial != "A1 2" || tool.Quantity != 0 {
+		t.Fatalf("tool: %+v", tool)
+	}
+	for name, in := range map[string]ItemInput{
+		"slot":        {Kind: KindTool, Name: "Saw", Slots: []string{"A-1"}},
+		"quantity":    {Kind: KindTool, Name: "Saw", Quantity: intPtr(2)},
+		"date":        {Kind: KindTool, Name: "Saw", WarrantyUntil: "03/2027"},
+		"status":      {Kind: KindTool, Name: "Saw", Status: "stolen"},
+		"kind":        {Kind: "gadget", Name: "Saw"},
+		"part status": {Name: "Bolt", Status: "lost"},
+	} {
+		if _, err := s.CreateItem(in); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	// An update without a kind keeps it; a lost tool stays recorded.
+	got, err := s.UpdateItem(tool.ID, ItemInput{Name: "Drill", Brand: "Makita", Status: "lost"})
+	if err != nil || got.Kind != KindTool || got.Status != "lost" || got.Model != "" {
+		t.Fatalf("update: %+v %v", got, err)
+	}
+	if err := s.MoveItems([]string{tool.ID}, "A-1"); err == nil {
+		t.Error("a tool was moved to a slot")
+	}
+	if _, err := s.ChangeQuantity(tool.ID, 1, nil); err == nil {
+		t.Error("a tool was counted")
+	}
+}
+
+func TestAttachmentLifecycle(t *testing.T) {
+	s := openTest(t)
+	tool := mustCreate(t, s, ItemInput{Kind: KindTool, Name: "Drill"})
+	a, err := s.AddAttachment(tool.ID, AttachmentInput{Filename: "../../etc/Facture.pdf", ContentType: "application/pdf", Label: "invoice"}, strings.NewReader("%PDF-1.4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Filename != "Facture.pdf" || a.Size != 8 {
+		t.Fatalf("attachment: %+v", a)
+	}
+	if _, err := os.Stat(filepath.Join(s.files, a.ID)); err != nil {
+		t.Fatalf("file on disk: %v", err)
+	}
+	got, _ := s.Item(tool.ID)
+	if len(got.Attachments) != 1 {
+		t.Fatalf("item attachments: %v", got.Attachments)
+	}
+
+	// Deleting the item keeps the file; undo brings it back with the item.
+	removed, err := s.DeleteItems([]string{tool.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.PurgeAttachments(time.Now().Add(-AttachmentRetention)); err != nil || n != 0 {
+		t.Fatalf("purged too early: %d %v", n, err)
+	}
+	if err := s.RestoreItems(removed); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Item(tool.ID); len(got.Attachments) != 1 {
+		t.Fatalf("attachments after undo: %v", got.Attachments)
+	}
+
+	// Deleted attachments go once the retention has passed.
+	if err := s.DeleteAttachment(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Item(tool.ID); len(got.Attachments) != 0 {
+		t.Fatalf("deleted attachment still listed: %v", got.Attachments)
+	}
+	if n, err := s.PurgeAttachments(time.Now().Add(time.Minute)); err != nil || n != 1 {
+		t.Fatalf("purge: %d %v", n, err)
+	}
+	if _, err := os.Stat(filepath.Join(s.files, a.ID)); !os.IsNotExist(err) {
+		t.Fatalf("file still on disk: %v", err)
+	}
+	if _, err := s.RestoreAttachment(a.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("restore after purge: %v", err)
+	}
+
+	// The files of a deleted item go too, after the retention.
+	b, _ := s.AddAttachment(tool.ID, AttachmentInput{Filename: "manual.pdf", ContentType: "application/pdf"}, strings.NewReader("x"))
+	s.DeleteItems([]string{tool.ID})
+	if n, _ := s.PurgeAttachments(time.Now().Add(time.Minute)); n != 1 {
+		t.Fatalf("orphans purged: %d", n)
+	}
+	if _, err := os.Stat(filepath.Join(s.files, b.ID)); !os.IsNotExist(err) {
+		t.Fatal("orphan file still on disk")
+	}
+	if _, err := s.AddAttachment("missing", AttachmentInput{Filename: "a"}, strings.NewReader("x")); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("attachment to a missing item: %v", err)
 	}
 }

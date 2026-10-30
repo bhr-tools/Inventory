@@ -15,10 +15,16 @@ func (s *Store) ImportItems(inputs []ItemInput) (created, merged int, err error)
 			var id string
 			err = tx.QueryRow(`SELECT id FROM items WHERE name_key = ?`, c.key).Scan(&id)
 			if err == sql.ErrNoRows {
+				if err := c.forKind(KindPart); err != nil {
+					return invalid("%q: %s", in.Name, err.Error())
+				}
 				id = newID()
 				t := now()
-				if _, err := tx.Exec(`INSERT INTO items (id, name, name_key, description, notes, quantity, created_at, updated_at)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, c.name, c.key, c.description, c.notes, c.quantityOr(0), t, t); err != nil {
+				if _, err := tx.Exec(`INSERT INTO items (id, kind, name, name_key, description, notes, quantity,
+						brand, model, serial, warranty_until, status, created_at, updated_at)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					id, c.kind, c.name, c.key, c.description, c.notes, c.quantityOr(0),
+					c.brand, c.model, c.serial, c.warranty, c.status, t, t); err != nil {
 					return err
 				}
 				if err := writeLists(tx, id, c); err != nil {
@@ -37,19 +43,30 @@ func (s *Store) ImportItems(inputs []ItemInput) (created, merged int, err error)
 			// A file without a quantity keeps the current one.
 			quantity := c.quantityOr(existing.Quantity)
 			m, err := ItemInput{
-				Name:        existing.Name,
-				Description: firstNonEmpty(existing.Description, c.description),
-				Notes:       firstNonEmpty(existing.Notes, c.notes),
-				Quantity:    &quantity,
-				Slots:       append(existing.Slots, slotStrings(c.slots)...),
-				Tags:        append(existing.Tags, c.tags...),
-				Aliases:     append(existing.Aliases, c.aliases...),
+				Kind:          existing.Kind,
+				Brand:         firstNonEmpty(c.brand, existing.Brand),
+				Model:         firstNonEmpty(c.model, existing.Model),
+				Serial:        firstNonEmpty(c.serial, existing.Serial),
+				WarrantyUntil: firstNonEmpty(c.warranty, existing.WarrantyUntil),
+				Status:        firstNonEmpty(c.status, existing.Status),
+				Name:          existing.Name,
+				Description:   firstNonEmpty(existing.Description, c.description),
+				Notes:         firstNonEmpty(existing.Notes, c.notes),
+				Quantity:      &quantity,
+				Slots:         append(existing.Slots, slotStrings(c.slots)...),
+				Tags:          append(existing.Tags, c.tags...),
+				Aliases:       append(existing.Aliases, c.aliases...),
 			}.clean()
+			if err == nil {
+				err = m.forKind(existing.Kind)
+			}
 			if err != nil {
 				return invalid("%q: %s", in.Name, err.Error())
 			}
-			if _, err := tx.Exec(`UPDATE items SET description = ?, notes = ?, quantity = ?, to_buy = ?, updated_at = ? WHERE id = ?`,
-				m.description, m.notes, quantity, shoppingFlag(existing.Quantity, quantity, existing.ToBuy), now(), id); err != nil {
+			if _, err := tx.Exec(`UPDATE items SET description = ?, notes = ?, quantity = ?, to_buy = ?,
+					brand = ?, model = ?, serial = ?, warranty_until = ?, status = ?, updated_at = ? WHERE id = ?`,
+				m.description, m.notes, quantity, shoppingFlag(existing.Quantity, quantity, existing.ToBuy) && m.kind == KindPart,
+				m.brand, m.model, m.serial, m.warranty, m.status, now(), id); err != nil {
 				return err
 			}
 			if err := writeLists(tx, id, m); err != nil {

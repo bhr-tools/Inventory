@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { normalize, editDistance, words } from '../../web/js/text.js';
 import { parseSlot, canonicalSlot, compareSlots } from '../../web/js/slots.js';
 import { parseQuery, indexItem, search, similarItems, highlight, hasTag } from '../../web/js/search.js';
-import { parseQuickAdd, tokenAt } from '../../web/js/quickadd.js';
+import { parseQuickAdd, tokenAt, warrantyDate } from '../../web/js/quickadd.js';
 
 const item = (name, extra = {}) => ({
   id: name, name, description: '', notes: '', quantity: 0, to_buy: false, slots: [], tags: [], aliases: [], ...extra,
@@ -133,4 +133,46 @@ test('completion context', () => {
   assert.equal(tokenAt('ESP wro', 7).type, 'name');
   assert.equal(tokenAt('ESP x12', 7).type, 'quantity');
   assert.equal(tokenAt('ESP ~wi', 7).type, 'alias');
+});
+
+test('tools: brand, reference, serial, files and filters', () => {
+  const tools = [
+    item('Perceuse visseuse', { kind: 'tool', brand: 'Makita', model: 'DHP482', serial: 'SN 4821-77', warranty_until: '2027-03-31',
+      attachments: [{ id: 'a', filename: 'Facture Leroy Merlin.pdf' }] }),
+    item('Multimètre', { kind: 'tool', brand: 'Fluke', model: '117', serial: 'FL117-0042', status: 'lost', warranty_until: '2024-01-31' }),
+    item('Fer à souder', { kind: 'tool', brand: 'Pinecil', status: 'broken' }),
+    item('Vis M3x10', { slots: ['C-1'] }),
+  ];
+  const idx = tools.map(indexItem);
+  const find = (q) => search(idx, parseQuery(q, { today: '2026-10-30' })).hits.map((h) => h.item.name);
+  assert.deepEqual(find('makita'), ['Perceuse visseuse']);
+  assert.deepEqual(find('dhp482'), ['Perceuse visseuse']);
+  assert.deepEqual(find('sn482177'), ['Perceuse visseuse']);       // spaces and dashes ignored
+  assert.deepEqual(find('4821'), []);                               // a serial matches from its start only
+  assert.deepEqual(find('FL117'), ['Multimètre']);
+  assert.deepEqual(find('FL118-0042'), []);                         // never fuzzy on serials
+  assert.deepEqual(find('leroy'), ['Perceuse visseuse']);          // attachment file name
+  assert.deepEqual(find('is:tool').length, 3);
+  assert.deepEqual(find('is:part'), ['Vis M3x10']);
+  assert.deepEqual(find('is:lost'), ['Multimètre']);
+  assert.deepEqual(find('is:broken'), ['Fer à souder']);
+  assert.deepEqual(find('is:warranty'), ['Perceuse visseuse']);    // Fluke's ended in 2024
+  assert.deepEqual(find('has:file'), ['Perceuse visseuse']);
+});
+
+test('quick add for tools', () => {
+  const p = parseQuickAdd('Perceuse visseuse brand:Makita ref:DHP482 sn:"A1 2" until:2027-03 #power A-12 x3', { kind: 'tool' });
+  assert.equal(p.name, 'Perceuse visseuse A-12 x3');              // no slot or count for tools
+  assert.equal(p.brand, 'Makita');
+  assert.equal(p.model, 'DHP482');
+  assert.equal(p.serial, 'A1 2');
+  assert.equal(p.warranty, '2027-03-31');
+  assert.deepEqual(p.tags, ['power']);
+  assert.equal(parseQuickAdd('Saw until:2027-13', { kind: 'tool' }).warrantyError, true);
+  assert.equal(tokenAt('Saw sn:12', 9, { kind: 'tool' }).type, 'serial');
+  assert.equal(warrantyDate('2028'), '2028-12-31');
+  assert.equal(warrantyDate('2028-02'), '2028-02-29');
+  assert.equal(warrantyDate('2027-02-30'), null);
+  // Parts ignore tool fields: "brand:x" stays in the name.
+  assert.equal(parseQuickAdd('Bolt brand:x').name, 'Bolt brand:x');
 });

@@ -21,6 +21,13 @@ the system, and full Vim navigation.
 - **Shopping list:** an item whose quantity *drops* to 0 goes to the second
   tab (an item created at 0 does not). Set a quantity when you bought some, or
   delete it if you won't buy it again.
+- **Tools register:** a second tab records tools (no slot, no count): brand,
+  reference, serial number, warranty end, and a status (`lost`, `broken`) that
+  keeps a lost tool on record with its invoice.
+- **Attached files:** invoices, manuals, photos, datasheets on any tool or part.
+  Drop them on the details, or press `f` (on a phone: camera, photos or files).
+  They open through a signed link, which also works in the viewer iOS opens
+  from a home screen app, and are served sandboxed.
 - **Boxes as grids:** see free slots, swap two slots with `s` or by dragging.
 - **Undo** for every change.
 
@@ -36,6 +43,10 @@ the system, and full Vim navigation.
 | `is:out`, `is:tobuy` | quantity 0, or on the shopping list |
 | `is:empty` | free slots of the boxes whose size is set |
 | `is:untagged`, `is:unplaced` | items without tags, or without a slot |
+| `makita`, `dhp482`, `sn4821` | tools by brand, reference, or serial (from its start, never fuzzy) |
+| `is:tool`, `is:part` | one kind |
+| `is:lost`, `is:broken` | tools by status |
+| `is:warranty`, `has:file` | tools still under warranty; items with attachments |
 
 The query is kept in the URL (`/?q=A-12`), so a slot can be bookmarked or put
 in a QR code on the box.
@@ -61,6 +72,16 @@ Typing `A-` lists the slots of box A, free ones first; `#` lists existing tags.
 the typed name as an alias); a quantity is added to its count. A name identical to an existing one, ignoring case
 and accents, always adds to it.
 
+For a tool (Quick Add opened from the tools tab):
+
+```
+Drill brand:Makita ref:DHP482 sn:"A1 2" until:2027-03 #power
+```
+
+`until:` is the warranty end: `2027`, `2027-03` or `2027-03-31` (the last day
+of the year or month when not given). After adding a tool, its details open,
+ready for the invoice.
+
 ## Keyboard shortcuts
 
 Press `?` in the app for the cheatsheet.
@@ -76,7 +97,8 @@ Press `?` in the app for the cheatsheet.
 | `a` | Add parts |
 | `+` / `-` | One more / one less (at 0, it goes to the shopping list) |
 | `x` | Type the quantity |
-| `1` / `2` (`&` / `é` on AZERTY) | Inventory / Shopping list |
+| `1` / `2` / `3` (`&` / `é` / `"` on AZERTY) | Parts / tools / shopping |
+| `f` / `o` | Attach files / open the first file |
 | `m` | Move to a slot |
 | `s` | Swap two slots |
 | `t` | Add tags, or remove them with `-tag` |
@@ -108,10 +130,18 @@ or `go run ./cmd/server`. Flags (or environment variables): `-host` (`HOST`),
 }
 ```
 
+## Files and backups
+
+Attachments live in `<data-dir>/attachments/`, one file per attachment named
+by its id; the database keeps their names and labels. Files are limited to
+25 MB. A deleted attachment, or the attachments of a deleted item, stay 30
+days for undo, then a daily purge removes them. Back up the data directory
+(database and `attachments/`), not only the database.
+
 ## Import and export
 
-The menu exports the whole inventory as CSV (`name, slots, tags, aliases,
-quantity, description, notes`; an empty quantity is 0 for a new item and
+The menu exports the whole inventory as CSV (`name, kind, slots, tags, aliases,
+quantity, brand, model, serial, warranty_until, status, description, notes`; an empty quantity is 0 for a new item and
 keeps the count of an existing one; slots and tags separated by spaces, aliases by
 semicolons). Importing the same format merges rows into existing items of the
 same name.

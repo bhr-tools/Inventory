@@ -19,6 +19,9 @@ func (a *API) inventory(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	for i := range items {
+		a.signItem(&items[i])
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "boxes": boxes})
 }
 
@@ -32,6 +35,7 @@ func (a *API) createItem(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	a.signItem(&item)
 	writeJSON(w, http.StatusCreated, item)
 }
 
@@ -41,6 +45,7 @@ func (a *API) getItem(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	a.signItem(&item)
 	writeJSON(w, http.StatusOK, item)
 }
 
@@ -54,6 +59,7 @@ func (a *API) updateItem(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	a.signItem(&item)
 	writeJSON(w, http.StatusOK, item)
 }
 
@@ -195,5 +201,6 @@ func (a *API) changeQuantity(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	a.signItem(&item)
 	writeJSON(w, http.StatusOK, item)
 }

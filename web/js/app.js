@@ -14,9 +14,11 @@ import { pickSlot, openSwap, openTagDialog, openQuantityDialog } from './views/d
 import { openGrid } from './views/grid.js';
 import { openTags } from './views/tags.js';
 import { openHelp } from './views/help.js';
+import { filesSection, uploadFiles } from './views/files.js';
 
 const $ = (id) => document.getElementById(id);
-const MAX_ROWS = 300; // rendered at once; the count shows the rest
+const MAX_ROWS = 300;
+const VIEWS = ['parts', 'tools', 'shopping']; // rendered at once; the count shows the rest
 
 class App {
   constructor() {
@@ -29,8 +31,9 @@ class App {
     this.knownBoxes = new Set();
     const params = new URLSearchParams(location.search);
     this.query = params.get('q') || '';
-    // 'inventory', or 'shopping': the items whose quantity dropped to 0 (to_buy).
-    this.view = params.get('view') === 'shopping' ? 'shopping' : 'inventory';
+    // 'parts', 'tools' (the register), or 'shopping': the parts whose quantity dropped to 0.
+    this.view = VIEWS.includes(params.get('view')) ? params.get('view') : 'parts';
+    this.elsewhere = null; // { view, count }: matches in the other kind, when this tab has none
     this.pendingQuantity = new Map(); // item id → requests in flight
     this.sheet = null; // phones: the full-screen details, { modal, body, row }
     this.rows = []; // { kind: 'item', item } | { kind: 'empty', slot }
@@ -56,7 +59,8 @@ class App {
     $('brand').prepend(icon('brandLogo'));
     $('search-icon').append(icon('search'));
     $('status-help').addEventListener('click', () => openHelp());
-    $('tab-inventory').addEventListener('click', () => this.setView('inventory'));
+    for (const v of VIEWS) $(`tab-${v}`).addEventListener('click', () => this.setView(v));
+    this.initDrop();
     $('tab-shopping').addEventListener('click', () => this.setView('shopping'));
     onUnauthorized(() => this.showLogin());
     initKeys(this);
@@ -154,7 +158,7 @@ class App {
     const url = new URL(location.href);
     if (this.query) url.searchParams.set('q', this.query);
     else url.searchParams.delete('q');
-    if (this.view === 'shopping') url.searchParams.set('view', 'shopping');
+    if (this.view !== 'parts') url.searchParams.set('view', this.view);
     else url.searchParams.delete('view');
     history.replaceState(null, '', url);
   }
@@ -162,18 +166,27 @@ class App {
   runSearch() {
     const q = parseQuery(this.query);
     this.slotBanner = null;
+    this.elsewhere = null;
     if (this.view === 'shopping') {
       this.rows = search(this.index, q).hits
         .filter((hit) => hit.item.to_buy)
         .map((hit) => ({ kind: 'item', item: hit.item }));
       return;
     }
-    if (q.flags.includes('empty')) {
+    if (this.view === 'parts' && q.flags.includes('empty')) {
       this.rows = this.emptySlots(q.boxes).map((slot) => ({ kind: 'empty', slot }));
       return;
     }
     const { slot, hits } = search(this.index, q);
-    this.rows = hits.map((hit) => ({ kind: 'item', item: hit.item, inSlot: hit.inSlot }));
+    const kind = this.view === 'tools' ? 'tool' : 'part';
+    this.rows = hits.filter((hit) => itemKind(hit.item) === kind)
+      .map((hit) => ({ kind: 'item', item: hit.item, inSlot: hit.inSlot }));
+    // Nothing here but something in the other tab: say so rather than "no match".
+    if (!this.rows.length && this.query.trim()) {
+      const count = hits.length;
+      if (count) this.elsewhere = { view: kind === 'tool' ? 'parts' : 'tools', count };
+    }
+    if (kind === 'tool') return;
     // "M3" parses as a slot, but only means one when box M exists or the dash was typed.
     if (slot && (this.knownBoxes.has(parseSlot(slot).box) || /-/.test(this.query))) {
       this.slotBanner = { slot, count: (this.slotMap.get(slot) || []).length };
@@ -236,15 +249,28 @@ class App {
         : h('span', null, 'nothing to buy. an item lands here when its quantity drops to 0 (', h('kbd', null, '-'), ').')));
       return;
     }
-    if (!this.rows.length) {
-      list.append(h('div', { class: 'empty-state' }, this.items.length
-        ? (this.slotBanner ? null : 'no match. try fewer words, a tag (#…) or a box (@A).')
-        : h('span', null, 'inventory is empty. press ', h('kbd', null, 'a'), ' to add a part.')));
+    if (!this.rows.length && this.elsewhere) {
+      const { view, count } = this.elsewhere;
+      list.append(h('div', { class: 'empty-state' }, `no match in ${this.view}. `,
+        h('button', { type: 'button', class: 'link-button', onclick: () => this.setView(view) },
+          `${count} in ${view}`), ' →'));
       return;
     }
-    list.append(h('div', { class: 'row thead', attrs: { 'aria-hidden': 'true' } },
-      h('span', { class: 'row-mark' }), h('span', null, 'slot'), h('span', { class: 'num' }, 'qty'),
-      h('span', null, 'name'), h('span', null, 'tags')));
+    if (!this.rows.length) {
+      const what = this.view === 'tools' ? 'tool' : 'part';
+      const anyOfKind = this.items.some((it) => itemKind(it) === (this.view === 'tools' ? 'tool' : 'part'));
+      list.append(h('div', { class: 'empty-state' }, anyOfKind
+        ? (this.slotBanner ? null : `no match. try fewer words, a tag (#…)${this.view === 'tools' ? ' or a serial number' : ' or a box (@A)'}.`)
+        : h('span', null, `no ${what} yet. press `, h('kbd', null, 'a'), ` to add one.`)));
+      return;
+    }
+    list.append(this.view === 'tools'
+      ? h('div', { class: 'row tool-row thead', attrs: { 'aria-hidden': 'true' } },
+        h('span', { class: 'row-mark' }), h('span', null, 'name'), h('span', null, 'brand · ref'),
+        h('span', null, 'serial'), h('span', null, 'warranty'), h('span', { class: 'num' }, 'files'))
+      : h('div', { class: 'row thead', attrs: { 'aria-hidden': 'true' } },
+        h('span', { class: 'row-mark' }), h('span', null, 'slot'), h('span', { class: 'num' }, 'qty'),
+        h('span', null, 'name'), h('span', null, 'tags')));
     this.rows.slice(0, MAX_ROWS).forEach((row, i) => list.append(this.renderRow(row, i, terms)));
     if (this.rows.length > MAX_ROWS) {
       list.append(h('div', { class: 'more-rows' }, `${this.rows.length - MAX_ROWS} more rows: refine the search`));
@@ -267,6 +293,21 @@ class App {
         h('span', { class: 'row-tags' }));
     }
     const it = row.item;
+    if (itemKind(it) === 'tool') {
+      return h('div', {
+        class: ['row', 'tool-row', i === this.cursor && 'cursor', this.selected.has(it.id) && 'selected', it.status && 'retired'],
+        dataset: { id: it.id },
+        onclick,
+        ondblclick: () => this.edit(it),
+      },
+      h('span', { class: 'row-mark' }),
+      h('span', { class: 'row-name-cell' }, highlighted('row-name', it.name, terms),
+        it.status ? h('span', { class: ['status', it.status] }, it.status) : null),
+      h('span', { class: 'row-brand' }, [it.brand, it.model].filter(Boolean).join(' ') || '—'),
+      h('span', { class: 'row-serial' }, it.serial || '—'),
+      warrantyCell(it),
+      h('span', { class: ['row-files', 'num', !it.attachments?.length && 'none'] }, String(it.attachments?.length || 0)));
+    }
     return h('div', {
       class: ['row', i === this.cursor && 'cursor', this.selected.has(it.id) && 'selected', row.inSlot && 'in-slot'],
       dataset: { id: it.id },
@@ -302,6 +343,29 @@ class App {
     const it = row.item;
     const link = (text, query, className) => h('button', { type: 'button', class: ['link-button', className], onclick: () => { closeAllModals(); this.setQuery(query); } }, text);
     const date = (iso) => (iso || '').slice(0, 10);
+    if (itemKind(it) === 'tool') {
+      const w = warranty(it);
+      return h('div', { class: 'preview-body' },
+        h('h2', { class: 'preview-title' }, it.name),
+        h('dl', { class: 'sheet' },
+          field('brand', it.brand || h('span', { class: 'muted' }, '—')),
+          field('ref', it.model ? h('span', { class: 'copyable' }, it.model) : h('span', { class: 'muted' }, '—')),
+          field('serial', it.serial ? h('span', { class: 'copyable serial' }, it.serial) : h('span', { class: 'muted' }, '—')),
+          field('warranty', it.warranty_until
+            ? h('span', { class: ['warranty', w] }, `${it.warranty_until} (${w === 'valid' ? 'valid' : 'expired'})`)
+            : h('span', { class: 'muted' }, '—')),
+          field('status', h('span', { class: ['status', it.status || 'ok'] }, it.status || 'in use')),
+          it.tags.length ? field('tags', it.tags.map((t) => link(t, `#${t}`, 'tag'))) : null,
+          it.aliases.length ? field('aka', h('span', { class: 'alias' }, it.aliases.join(', '))) : null,
+          it.description ? field('desc', h('span', { class: 'text' }, it.description)) : null,
+          it.notes ? field('notes', h('span', { class: 'text' }, it.notes)) : null,
+          field('updated', h('span', { class: 'muted' }, date(it.updated_at)))),
+        filesSection(this, it),
+        h('div', { class: 'preview-actions' },
+          action('e', 'edit', () => this.edit(it)),
+          action('f', 'attach file', () => this.pickFiles(it)),
+          action('d', 'delete', () => this.remove([it]), 'danger-text')));
+    }
     return h('div', { class: 'preview-body' },
       h('h2', { class: 'preview-title' }, it.name),
       h('dl', { class: 'sheet' },
@@ -320,6 +384,7 @@ class App {
         action('m', 'move', () => this.moveTargets([it])),
         action('s', 'swap', () => this.swap(it.slots[0])),
         action('d', 'delete', () => this.remove([it]), 'danger-text')),
+      filesSection(this, it),
       it.slots[0] ? this.neighbours(it.slots[0], it) : null);
   }
 
@@ -389,9 +454,9 @@ class App {
     const total = this.rows.length;
     $('status-position').textContent = `${total ? this.cursor + 1 : 0} / ${total}`;
     const toBuy = this.items.filter((it) => it.to_buy).length;
-    $('result-count').textContent = `${total}/${this.view === 'shopping' ? toBuy : this.items.length}`;
-    $('tab-inventory').classList.toggle('active', this.view === 'inventory');
-    $('tab-shopping').classList.toggle('active', this.view === 'shopping');
+    const pool = { shopping: toBuy, tools: this.items.filter((it) => itemKind(it) === 'tool').length };
+    $('result-count').textContent = `${total}/${pool[this.view] ?? this.items.length - pool.tools}`;
+    for (const v of VIEWS) $(`tab-${v}`).classList.toggle('active', this.view === v);
     $('shopping-count').textContent = String(toBuy);
     $('shopping-count').classList.toggle('alert', toBuy > 0);
     $('status-selection').textContent = this.selected.size ? `${this.selected.size} selected` : '';
@@ -433,8 +498,11 @@ class App {
   }
 
   /** Shows one item: clears the search if it hides it. */
-  focusItem(item) {
+  /** Shows one item, in its tab; with open, also its details (full screen on phones). */
+  focusItem(item, { open = false } = {}) {
     closeAllModals();
+    const view = itemKind(item) === 'tool' ? 'tools' : 'parts';
+    if (this.view !== view && !(this.view === 'shopping' && item.to_buy)) this.setView(view);
     let i = this.rows.findIndex((r) => r.item?.id === item.id);
     if (i < 0) {
       this.setQuery('');
@@ -442,6 +510,7 @@ class App {
     }
     this.cursor = Math.max(0, i);
     this.render();
+    if (open && isMobile()) this.openPreviewSheet();
   }
 
   toggleSelection() {
@@ -507,7 +576,7 @@ class App {
     const row = this.cursorRow();
     if (!prefill && row?.kind === 'empty') prefill = `${row.slot} `;
     if (!prefill && this.slotBanner && !this.slotBanner.count) prefill = `${this.slotBanner.slot} `;
-    openQuickAdd(this, { prefill });
+    openQuickAdd(this, { prefill, kind: this.view === 'tools' ? 'tool' : 'part' });
   }
 
   edit(item = this.cursorItem()) {
@@ -597,6 +666,58 @@ class App {
     } else {
       this.undoStack.push({ message: `quantity of ${item.name}`, undo });
     }
+  }
+
+  /** Opens the file picker for an item (on iPhone: camera, photos or files). */
+  pickFiles(item = this.cursorItem()) {
+    if (!item) return;
+    const input = h('input', { type: 'file', multiple: true });
+    input.addEventListener('change', () => this.attachFiles(item, [...input.files]));
+    input.click();
+  }
+
+  async attachFiles(item, files) {
+    if (!item || !files.length) return;
+    const updated = await uploadFiles(this, item, files);
+    if (!updated) return;
+    this.putItem(updated);
+    const added = updated.attachments.filter((a) => !item.attachments.some((b) => b.id === a.id));
+    this.done(`${item.name}: ${added.length} file${added.length === 1 ? '' : 's'} attached`,
+      () => Promise.all(added.map((a) => api.attachments.remove(a.id))));
+  }
+
+  openFirstFile(item = this.cursorItem()) {
+    const file = item?.attachments?.[0];
+    if (file) window.open(file.url, '_blank', 'noopener');
+    else if (item) toast(`${item.name} has no file. press f to attach one.`);
+  }
+
+  /** Files dropped on the details pane go to the item it shows. */
+  initDrop() {
+    const pane = $('preview');
+    let depth = 0;
+    const has = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+    pane.addEventListener('dragenter', (e) => {
+      if (!has(e) || !this.cursorItem()) return;
+      depth++;
+      pane.classList.add('dropping');
+    });
+    pane.addEventListener('dragleave', () => {
+      if (--depth <= 0) {
+        depth = 0;
+        pane.classList.remove('dropping');
+      }
+    });
+    pane.addEventListener('dragover', (e) => {
+      if (has(e) && this.cursorItem()) e.preventDefault();
+    });
+    pane.addEventListener('drop', (e) => {
+      depth = 0;
+      pane.classList.remove('dropping');
+      if (!has(e)) return;
+      e.preventDefault();
+      this.attachFiles(this.cursorItem(), [...e.dataTransfer.files]);
+    });
   }
 
   async remove(items = this.targets()) {
@@ -776,6 +897,21 @@ class App {
       footer: retry,
     });
   }
+}
+
+function itemKind(item) {
+  return item.kind || 'part';
+}
+
+/** 'valid' until the warranty end (inclusive), 'expired' after, '' without one. */
+function warranty(it, today = new Date().toISOString().slice(0, 10)) {
+  if (!it.warranty_until) return '';
+  return it.warranty_until >= today ? 'valid' : 'expired';
+}
+
+function warrantyCell(it) {
+  const w = warranty(it);
+  return h('span', { class: ['row-warranty', w] }, w === 'valid' ? `→ ${it.warranty_until.slice(0, 7)}` : w || '—');
 }
 
 /** Same rule as the server: on the list once the quantity drops to 0, off it above 0. */

@@ -49,6 +49,11 @@ func (a *API) Handler() http.Handler {
 	auth("GET /api/items/{id}", a.getItem)
 	auth("PUT /api/items/{id}", a.updateItem)
 	auth("POST /api/items/{id}/quantity", a.changeQuantity)
+	auth("POST /api/items/{id}/attachments", a.uploadAttachments)
+	open("GET /api/attachments/{id}", a.getAttachment) // session or signed link
+	auth("PATCH /api/attachments/{id}", a.updateAttachment)
+	auth("DELETE /api/attachments/{id}", a.deleteAttachment)
+	auth("POST /api/attachments/{id}/restore", a.restoreAttachment)
 	auth("POST /api/items/delete", a.deleteItems)
 	auth("POST /api/items/restore", a.restoreItems)
 	auth("POST /api/items/move", a.moveItems)

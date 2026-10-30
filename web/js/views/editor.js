@@ -1,5 +1,7 @@
 // Full editor of one item. Slots and tags complete like in Quick Add, and the
-// name warns about look-alike items.
+// name warns about look-alike items. The kind can be switched: a part has
+// slots and a count, a tool brand, reference, serial, warranty and status.
+// Files dropped on the dialog are attached to the item.
 
 import { h } from '../dom.js';
 import { openModal } from '../ui/overlay.js';
@@ -25,6 +27,16 @@ export function openEditor(app, item) {
     type: 'number', class: 'input', min: 0, max: 1000000, step: 1, inputMode: 'numeric',
     value: item.quantity,
   });
+  const kind = h('select', { class: 'input' },
+    [['part', 'part: slots and a count'], ['tool', 'tool: a record, with its files']]
+      .map(([v, label]) => h('option', { value: v, selected: (item.kind || 'part') === v }, label)));
+  const brand = text(item.brand || '', 'Makita', { maxLength: 100 });
+  const model = text(item.model || '', 'DHP482', { maxLength: 100 });
+  const serial = text(item.serial || '', 'On the label', { maxLength: 100 });
+  const warrantyUntil = h('input', { type: 'date', class: 'input', value: item.warranty_until || '' });
+  const status = h('select', { class: 'input' },
+    [['', 'in use'], ['broken', 'broken'], ['lost', 'lost']]
+      .map(([v, label]) => h('option', { value: v, selected: (item.status || '') === v }, label)));
   const description = h('textarea', { class: 'input textarea', value: item.description, placeholder: 'Value, size, reference…', rows: 2, maxLength: 2000 });
   const notes = h('textarea', { class: 'input textarea', value: item.notes, placeholder: 'Datasheet link, where to buy, pinout…', rows: 4, maxLength: 10000 });
   const error = h('div', { class: 'form-error', hidden: true });
@@ -56,7 +68,8 @@ export function openEditor(app, item) {
 
   async function save() {
     error.hidden = true;
-    const slotList = slots.value.split(/[\s,]+/).filter(Boolean);
+    const isTool = kind.value === 'tool';
+    const slotList = isTool ? [] : slots.value.split(/[\s,]+/).filter(Boolean);
     const bad = slotList.find((s) => !canonicalSlot(s));
     if (bad) {
       error.textContent = `“${bad}” is not a slot: write it like A-12.`;
@@ -66,11 +79,17 @@ export function openEditor(app, item) {
     const undo = app.snapshot([item]);
     try {
       const updated = await api.items.update(item.id, {
+        kind: kind.value,
         name: name.value,
         slots: slotList,
         tags: tags.value.split(/\s+/).filter(Boolean),
         aliases: aliases.value.split(',').map((a) => a.trim()).filter(Boolean),
-        quantity: Number(quantity.value) || 0,
+        quantity: isTool ? 0 : Number(quantity.value) || 0,
+        brand: isTool ? brand.value : '',
+        model: isTool ? model.value : '',
+        serial: isTool ? serial.value : '',
+        warranty_until: isTool ? warrantyUntil.value : '',
+        status: isTool ? status.value : '',
         description: description.value,
         notes: notes.value,
       });
@@ -83,17 +102,38 @@ export function openEditor(app, item) {
     }
   }
 
+  const partFields = h('div', { class: 'field-pair' },
+    field('Slots', slotBox),
+    field('Quantity', quantity, h('span', { class: 'field-info' }, 'dropping to 0: shopping list')));
+  const toolFields = h('div', { class: 'field-grid' },
+    field('Brand', brand),
+    field('Reference', model),
+    field('Serial number', serial),
+    field('Warranty until', warrantyUntil),
+    field('Status', status));
   const body = h('form', { class: 'editor', onsubmit: (e) => { e.preventDefault(); save(); } },
     error,
     field('Name', name, nameWarning),
-    h('div', { class: 'field-pair' },
-      field('Slots', slotBox),
-      field('Quantity', quantity, h('span', { class: 'field-info' }, 'dropping to 0: shopping list'))),
+    field('Kind', kind),
+    partFields,
+    toolFields,
     field('Tags', tagBox),
     field('Also known as', aliases),
     field('Description', description),
     field('Notes', notes),
     h('button', { type: 'submit', hidden: true }));
+  const showKind = () => {
+    partFields.hidden = kind.value === 'tool';
+    toolFields.hidden = kind.value !== 'tool';
+  };
+  kind.addEventListener('change', showKind);
+  showKind();
+  body.addEventListener('dragover', (e) => e.preventDefault());
+  body.addEventListener('drop', (e) => {
+    if (!e.dataTransfer?.files.length) return;
+    e.preventDefault();
+    app.attachFiles(app.byId.get(item.id) || item, [...e.dataTransfer.files]);
+  });
   body.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
@@ -102,7 +142,7 @@ export function openEditor(app, item) {
   });
 
   const modal = openModal({
-    title: 'Edit item',
+    title: item.kind === 'tool' ? 'Edit tool' : 'Edit part',
     className: 'editor-modal',
     body,
     footer: [
