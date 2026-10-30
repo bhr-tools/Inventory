@@ -193,7 +193,7 @@ def desktop(browser):
     expect(page.locator(".grid .cell.cursor")).to_contain_text("Multimètre Fluke")
     page.keyboard.press("s")
     page.keyboard.press("l")
-    expect(page.locator(".grid-hint")).to_contain_text("Swap A-5 with")
+    expect(page.locator(".grid-hint")).to_contain_text("swap A-5 with")
     shot(page, "07-grid")
     page.keyboard.press("s")
     expect(page.locator(".toast")).to_contain_text("Swapped A-5 and A-6")
@@ -297,15 +297,55 @@ def phone(browser, state):
     watch(page)
     page.goto(BASE)
     expect(rows(page)).not_to_have_count(0)
+    # iOS 26 blurs the top of the page unless an opaque sticky element touches it.
+    assert page.locator(".topbar").evaluate("e => getComputedStyle(e).position") == "sticky"
     shot(page, "11-phone-list")
+
+    # The details open full screen and follow every change: + tapped twice shows 12.
+    type_search(page, "esp32")
     rows(page).first.tap()
-    expect(page.locator(".preview-sheet")).to_be_visible()
+    sheet = page.locator(".preview-sheet")
+    expect(sheet).to_be_visible()
+    box = sheet.bounding_box()
+    assert box["y"] == 0 and box["height"] == 844, box
+    expect(sheet.locator(".modal-title")).to_have_text("ESP32-WROOM")
+    plus = sheet.locator(".qty-step").nth(1)
+    expect(sheet.locator(".qty-value")).to_have_text("10")
+    plus.tap()
+    plus.tap()
+    expect(sheet.locator(".qty-value")).to_have_text("12")
+    sheet.locator(".qty-step").first.tap()
+    expect(sheet.locator(".qty-value")).to_have_text("11")
     shot(page, "12-phone-preview")
-    page.locator(".modal-overlay").click(position={"x": 10, "y": 10})
+    # Typing the quantity: the dialog stacks on the sheet, which updates once it closes.
+    sheet.locator(".qty-value").tap()
+    page.locator(".qty-input").fill("0")
+    page.locator(".modal-footer .button.primary").tap()
+    expect(sheet.locator(".qty-note")).to_have_text("to buy")
+    sheet.locator(".modal-header .icon-button").tap()
+    expect(sheet).to_have_count(0)
+
+    # Quick Add: the field sits at the top of a full-screen page.
+    type_search(page, "")
     page.locator("#fab").tap()
-    page.locator(".quick-input").type("ESP32 clone")
+    qa = page.locator(".quick-input")
+    expect(qa).to_be_focused()
+    assert qa.bounding_box()["y"] < 120, qa.bounding_box()
+    qa.type("ESP32 clone")
     expect(page.locator(".quick-suggestions .complete-item").first).to_contain_text("ESP32-WROOM")
     shot(page, "13-phone-quickadd")
+    page.locator(".quick-add .modal-header .icon-button").tap()
+
+    # Box grid by touch: tap A-11, "swap", then tap A-14.
+    page.locator("#more-button").tap()
+    page.locator(".menu-item", has_text="Boxes").tap()
+    page.locator(".grid .cell").nth(10).tap()
+    page.locator(".grid-actions .button.primary").tap()
+    expect(page.locator(".grid-hint")).to_contain_text("swap A-11 with")
+    page.locator(".grid .cell").nth(13).tap()
+    expect(page.locator(".toast")).to_contain_text("Swapped A-11 and A-14")
+    expect(page.locator(".grid .cell").nth(13)).to_contain_text("Résistance 10k")
+    shot(page, "14-phone-grid")
     ctx.close()
 
 

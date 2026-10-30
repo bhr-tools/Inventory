@@ -32,6 +32,7 @@ class App {
     // 'inventory', or 'shopping': the items whose quantity dropped to 0 (to_buy).
     this.view = params.get('view') === 'shopping' ? 'shopping' : 'inventory';
     this.pendingQuantity = new Map(); // item id → requests in flight
+    this.sheet = null; // phones: the full-screen details, { modal, body, row }
     this.rows = []; // { kind: 'item', item } | { kind: 'empty', slot }
     this.slotBanner = null;
     this.cursor = 0;
@@ -283,11 +284,11 @@ class App {
   renderPreview() {
     const pane = clear($('preview'));
     pane.append(this.previewContent());
+    this.renderSheet();
   }
 
   /** The details of the cursor row, as a key/value sheet, for the side pane or the phone sheet. */
-  previewContent() {
-    const row = this.cursorRow();
+  previewContent(row = this.cursorRow()) {
     if (!row) return h('div', { class: 'preview-empty' }, this.items.length ? 'no item selected' : '');
     const field = (key, ...value) => [h('dt', null, key), h('dd', null, ...value)];
     const action = (key, label, run, className) => h('button', { type: 'button', class: ['button', className], onclick: run }, h('kbd', null, key), label);
@@ -348,9 +349,36 @@ class App {
       around.map((n) => line(n, slotSummary(this, n), open(n))));
   }
 
+  /**
+   * Phones show the details full screen. The sheet follows its item (not the
+   * cursor) and is redrawn after every change, so − / + update it in place.
+   */
   openPreviewSheet() {
-    if (!this.cursorRow()) return;
-    openModal({ className: 'preview-sheet', body: this.previewContent(), autofocus: false });
+    const row = this.cursorRow();
+    if (!row) return;
+    const body = h('div', { class: 'sheet-content' });
+    const modal = openModal({
+      title: row.kind === 'empty' ? row.slot : row.item.name,
+      className: 'preview-sheet',
+      body,
+      autofocus: false,
+      onClose: () => { if (this.sheet?.modal === modal) this.sheet = null; },
+    });
+    this.sheet = { modal, body, row };
+    this.renderSheet();
+  }
+
+  renderSheet() {
+    if (!this.sheet) return;
+    let { row } = this.sheet;
+    if (row.kind === 'item') {
+      const item = this.byId.get(row.item.id);
+      if (!item) return this.sheet.modal.close(); // deleted
+      row = { ...row, item };
+      this.sheet.row = row;
+      this.sheet.modal.el.querySelector('.modal-title').textContent = item.name;
+    }
+    this.sheet.body.replaceChildren(this.previewContent(row));
   }
 
   renderStatus(mode) {

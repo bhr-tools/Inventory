@@ -16,7 +16,9 @@ export function openGrid(app, boxId, cursorSlot) {
   const settings = h('div', { class: 'grid-settings' });
   const grid = h('div', { class: 'grid' });
   const hint = h('div', { class: 'grid-hint' });
-  const body = h('div', { class: 'grid-view' }, tabs, settings, grid, hint);
+  // The same actions as the keys, for touch screens: drag and double-click do not work there.
+  const actions = h('div', { class: 'grid-actions' });
+  const body = h('div', { class: 'grid-view' }, tabs, settings, grid, hint, actions);
 
   const config = () => app.boxes.find((b) => b.id === box) || { id: box, slots: 0, columns: 0 };
   const used = () => [...app.slotMap.keys()].map(parseSlot).filter((s) => s?.box === box).map((s) => s.number);
@@ -32,6 +34,7 @@ export function openGrid(app, boxId, cursorSlot) {
     if (!box) {
       clear(settings);
       clear(grid);
+      clear(actions);
       hint.textContent = 'No boxes yet: add a part with a slot like A-1, or create a box with +.';
       return;
     }
@@ -45,7 +48,12 @@ export function openGrid(app, boxId, cursorSlot) {
         class: ['cell', !items.length && 'empty', n === cursor && 'cursor', n === marked && 'marked'],
         draggable: true,
         title: items.map((it) => it.name).join('\n') || 'empty',
-        onclick: () => { cursor = n; render(); },
+        // While a slot waits for its swap partner, tapping another one swaps them.
+        onclick: () => {
+          if (marked && marked !== n) return swap(marked, n);
+          cursor = n;
+          render();
+        },
         ondblclick: () => open(n),
         ondragstart: (e) => e.dataTransfer.setData('text/plain', String(n)),
         ondragover: (e) => e.preventDefault(),
@@ -61,8 +69,16 @@ export function openGrid(app, boxId, cursorSlot) {
       grid.append(cell);
     }
     hint.textContent = marked
-      ? `Swap ${slotName({ box, number: marked })} with… (s or Enter on the other slot, Esc to cancel)`
+      ? `swap ${slotName({ box, number: marked })} with… (tap or s on the other slot, esc to cancel)`
       : '';
+    const here = slotName({ box, number: cursor });
+    const button = (key, label, run, className) => h('button', { type: 'button', class: ['button', className], onclick: run }, h('kbd', null, key), label);
+    actions.replaceChildren(
+      button('⏎', `open ${here}`, () => open(cursor)),
+      button('a', 'add here', () => { modal.close(); app.quickAdd(`${here} `); }),
+      marked
+        ? button('esc', 'cancel swap', () => { marked = null; render(); })
+        : button('s', `swap ${here}…`, () => { marked = cursor; render(); }, 'primary'));
     grid.querySelector('.cursor')?.scrollIntoView({ block: 'nearest' });
   }
 

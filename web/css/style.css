@@ -417,6 +417,7 @@ select.input { cursor: pointer; }
 .cell-item { overflow: hidden; font-size: 0.82rem; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
 .cell-more { color: var(--rp-muted); font-size: 0.78rem; }
 .grid-hint { min-height: 1.2em; color: var(--rp-iris); }
+.grid-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 
 /* Tags */
 .modal.tags-modal { width: min(560px, 100%); }
@@ -570,21 +571,35 @@ select.input { cursor: pointer; }
    Phones
    ========================================================================== */
 
+/* No double-tap zoom: two quick taps on + are two increments. */
+html, button, input, select, textarea, .row, .cell { touch-action: manipulation; }
+
 @media (max-width: 768px) {
   /* 16px text keeps iOS Safari from zooming into focused fields. */
-  .input, .search-input { font-size: 16px; }
+  body, .input, .search-input { font-size: 16px; }
+  :root { --row: 44px; }
 
-  .topbar { height: auto; gap: 8px; padding: max(8px, env(safe-area-inset-top)) 8px 8px; }
+  /* Sticky and opaque at the top edge: iOS 26 extends its colour under the
+     status bar instead of blurring the top of the page. */
+  .topbar { position: sticky; top: 0; z-index: 10; height: auto; gap: 6px; padding: max(6px, env(safe-area-inset-top)) 6px 6px; }
   .brand-name, .add-button { display: none; }
-  .searchbar { height: 36px; }
+  .searchbar { height: 40px; }
+  .icon-button { width: 40px; height: 40px; }
+  .tab { height: 40px; flex: 1; justify-content: center; }
 
   .preview { display: none; }
-  .results { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
-  :root { --row: 40px; }
+  .results { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
   .row { grid-template-columns: 3px 7ch 5ch minmax(0, 1fr); column-gap: 8px; padding-right: 8px; }
   .row-tags { display: none; }
+  .row.thead { height: 28px; }
   .row.thead span:last-child { display: none; }
+  .slot-banner { height: 44px; }
+
+  .button { height: 40px; padding: 0 12px; }
   .button kbd { display: none; }
+  .button.small { height: 36px; }
+  .input { height: 40px; }
+  .textarea { height: auto; }
 
   .statusbar { display: none; }
   .fab {
@@ -595,16 +610,18 @@ select.input { cursor: pointer; }
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 48px;
-    height: 48px;
+    width: 56px;
+    height: 56px;
     border: 1px solid var(--accent);
     border-radius: var(--radius);
     background: var(--rp-surface);
     color: var(--accent);
   }
-  .fab .icon svg { width: 22px; height: 22px; }
+  .fab .icon svg { width: 24px; height: 24px; }
   body.has-modal .fab { display: none; }
-  .toast { right: 8px; left: 8px; bottom: calc(76px + env(safe-area-inset-bottom)); max-width: none; }
+  .toast { right: 8px; left: 8px; bottom: calc(84px + env(safe-area-inset-bottom)); max-width: none; padding: 8px 8px 8px 12px; }
+  body.has-modal .toast { bottom: calc(8px + env(safe-area-inset-bottom)); }
+  .toast-action { height: 36px; padding: 0 12px; }
 
   .popover.sheet {
     inset: auto 0 0 0;
@@ -616,23 +633,57 @@ select.input { cursor: pointer; }
     border-width: 1px 0 0;
   }
   .sheet .sheet-title { display: block; padding: 4px 12px 8px; font-weight: 700; }
-  .sheet .menu-item { height: 40px; }
+  .sheet .menu-item { height: 48px; }
 
-  /* Dialogs dock to the bottom, above the keyboard (--vv-* come from overlay.js). */
-  .modal-overlay { align-items: flex-end; padding: 0; top: var(--vv-top, 0); bottom: auto; height: var(--vv-height, 100%); }
+  /* Dialogs are full-screen pages: the field to type in sits at the top, the
+     buttons right above the keyboard (--vv-* follow the visible area, set in
+     overlay.js), and the opaque page leaves nothing for iOS to blur. */
+  .modal-overlay { align-items: stretch; padding: 0; top: var(--vv-top, 0); bottom: auto; height: var(--vv-height, 100%); background: var(--rp-base); }
   .modal, .modal.quick-add, .modal.editor-modal, .modal.grid-modal, .modal.help, .modal.tags-modal {
     width: 100%;
-    max-height: min(92dvh, var(--vv-height, 100dvh));
+    height: 100%;
+    max-height: none;
     margin: 0;
-    border-width: 1px 0 0;
+    border: none;
   }
-  .modal.quick-add { align-self: flex-end; }
-  .modal-body { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .modal-header { position: sticky; top: 0; height: 48px; flex-shrink: 0; padding: 0 0 0 12px; }
+  .modal-header .icon-button { width: 48px; height: 48px; }
+  .modal-title { font-size: 1rem; }
+  .modal-body { flex: 1; padding: 12px; }
+  .modal-footer { flex-shrink: 0; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
+  .modal-footer .button { flex: 1; }
+  .modal-footer .spacer { display: none; }
+
   .field-pair { grid-template-columns: 1fr; }
+  .complete-item { height: 44px; }
+  .complete { max-height: none; }
+  .quick-row .button, .quick-input { height: 44px; }
+  .quick-guide { grid-template-columns: 9ch minmax(0, 1fr); }
+  .guide-help { font-size: 0.8rem; line-height: 1.4; }
+  /* Half the screen is keyboard: once typing starts, the guide keeps only the
+     fields filled and the one being typed, so the suggestions stay in view. */
+  .quick-guide:not(.blank) .guide-row:not(.filled):not(.typing) > * { display: none; }
+
+  /* Details sheet: the name is in the header already. */
+  .preview-sheet .preview-title { display: none; }
+  .preview-sheet .preview-body { gap: 18px; padding: 12px; }
+  .sheet { gap: 10px 12px; }
+  .sheet .link-button { min-height: 32px; }
+  .qty-step { width: 48px; height: 48px; font-size: 1.3rem; }
+  .qty-value { min-width: 8ch; height: 48px; font-size: 1.3rem; }
+  .qty-note { flex-basis: 100%; margin: 4px 0 0; }
+  .quantity-control { flex-wrap: wrap; }
+  .preview-actions .button { flex: 1 1 calc(50% - 4px); }
+  .neighbour { height: 40px; }
+  .qty-input { height: 52px; }
+  .qty-big { width: 52px; height: 52px; }
+
   .help-grid { grid-template-columns: 1fr; }
   .help-syntax .help-row { flex-direction: column; align-items: flex-start; gap: 0; }
-  .cell { min-height: 52px; }
-  .tag-row { height: 36px; }
+  .grid-tab { height: 40px; min-width: 44px; }
+  .cell { min-height: 56px; padding: 3px 4px; }
+  .cell-item { font-size: 0.7rem; }
+  .tag-row { height: 44px; }
   .tag-row .button { visibility: visible; }
 }
 

@@ -77,6 +77,7 @@ export function openQuickAdd(app, { prefill = '' } = {}) {
       values.length
         ? h('span', { class: 'guide-values' }, values)
         : h('span', { class: 'guide-help' }, h('code', null, syntax), ' ', example));
+    guide.classList.toggle('blank', !input.value.trim());
     guide.replaceChildren(
       row('name', 'name', p.name ? [chip('name', p.name)] : [], 'any words', 'what it is: ESP32-WROOM, Velcro strip'),
       row('slot', 'slots', p.slots.map((s) => chip('slot', `${s} · ${slotSummary(app, s)}`)), 'A-12', 'box and slot, several allowed'),
