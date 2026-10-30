@@ -1,0 +1,16 @@
+# Binaries
+/inventory
+/server
+result
+
+# Database & local data
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# IDE / Editor
+.idea/
+.vscode/
+.DS_Store
+tests/e2e/out/
