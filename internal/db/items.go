@@ -8,22 +8,26 @@ import (
 	"time"
 )
 
-// Item kinds. A part sits in slots and is counted; a tool is only recorded:
-// brand, reference, serial number, warranty and attached files.
+// Item kinds. A part sits in slots and is counted; gear (a tool, a watch, a
+// laptop…) is only recorded: type, brand, reference, serial number, warranty
+// and attached files.
 const (
 	KindPart = "part"
-	KindTool = "tool"
+	KindGear = "gear"
+	// kindLegacyTool is the kind of gear before migration 6; older CSV exports
+	// still carry it.
+	kindLegacyTool = "tool"
 )
 
-// StatusArchived marks a tool that is gone (broken, lost, sold) but kept on
+// StatusArchived marks gear that is gone (broken, lost, sold) but kept on
 // record with its serial number and invoice. The empty status means in use.
 const StatusArchived = "archived"
 
-// legacyStatuses were the tool statuses before archiving replaced them; older
+// legacyStatuses were the gear statuses before archiving replaced them; older
 // CSV exports still carry them.
 var legacyStatuses = map[string]bool{"broken": true, "lost": true}
 
-// Item is a part or a tool.
+// Item is a part or a piece of gear.
 type Item struct {
 	ID            string       `json:"id"`
 	Kind          string       `json:"kind"`
@@ -35,6 +39,7 @@ type Item struct {
 	Slots         []string     `json:"slots"`
 	Tags          []string     `json:"tags"`
 	Aliases       []string     `json:"aliases"`
+	Type          string       `json:"type"` // gear only: "tool", "watch"… lower case
 	Brand         string       `json:"brand"`
 	Model         string       `json:"model"`
 	Serial        string       `json:"serial"`
@@ -55,6 +60,7 @@ type ItemInput struct {
 	Slots         []string `json:"slots"`
 	Tags          []string `json:"tags"`
 	Aliases       []string `json:"aliases"`
+	Type          string   `json:"type"`
 	Brand         string   `json:"brand"`
 	Model         string   `json:"model"`
 	Serial        string   `json:"serial"`
@@ -75,7 +81,7 @@ func shoppingFlag(old, updated int, toBuy bool) bool {
 // cleanItem is a validated ItemInput.
 type cleanItem struct {
 	kind, name, key, description, notes string
-	brand, model, serial, warranty      string
+	typ, brand, model, serial, warranty string
 	status                              string
 	quantity                            *int
 	slots                               []Slot
@@ -101,8 +107,18 @@ func (in ItemInput) clean() (cleanItem, error) {
 		return c, invalid("Notes are at most %d characters long", MaxNotesLength)
 	}
 	c.kind = strings.TrimSpace(in.Kind)
-	if c.kind != "" && c.kind != KindPart && c.kind != KindTool {
-		return c, invalid("The kind is part or tool")
+	if c.kind == kindLegacyTool {
+		c.kind = KindGear
+		if strings.TrimSpace(in.Type) == "" {
+			in.Type = "tool"
+		}
+	}
+	if c.kind != "" && c.kind != KindPart && c.kind != KindGear {
+		return c, invalid("The kind is part or gear")
+	}
+	c.typ = strings.ToLower(strings.Join(strings.Fields(in.Type), " "))
+	if len([]rune(c.typ)) > MaxTypeLength {
+		return c, invalid("The type is at most %d characters long", MaxTypeLength)
 	}
 	for _, f := range []struct {
 		dst   *string
@@ -110,8 +126,8 @@ func (in ItemInput) clean() (cleanItem, error) {
 		label string
 	}{{&c.brand, in.Brand, "brand"}, {&c.model, in.Model, "reference"}, {&c.serial, in.Serial, "serial number"}} {
 		*f.dst = strings.Join(strings.Fields(f.src), " ")
-		if len([]rune(*f.dst)) > MaxToolFieldLength {
-			return c, invalid("The %s is at most %d characters long", f.label, MaxToolFieldLength)
+		if len([]rune(*f.dst)) > MaxGearFieldLength {
+			return c, invalid("The %s is at most %d characters long", f.label, MaxGearFieldLength)
 		}
 	}
 	c.warranty = strings.TrimSpace(in.WarrantyUntil)
@@ -179,14 +195,14 @@ func (s *Store) loadItems(q querier, id string) ([]Item, error) {
 	var order []*Item
 
 	rows, err := q.Query(`SELECT id, kind, name, description, notes, COALESCE(quantity, 0), to_buy,
-		brand, model, serial, warranty_until, status, created_at, updated_at FROM items`+itemFilter, args...)
+		type, brand, model, serial, warranty_until, status, created_at, updated_at FROM items`+itemFilter, args...)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		it := &Item{Slots: []string{}, Tags: []string{}, Aliases: []string{}, Attachments: []Attachment{}}
 		if err := rows.Scan(&it.ID, &it.Kind, &it.Name, &it.Description, &it.Notes, &it.Quantity, &it.ToBuy,
-			&it.Brand, &it.Model, &it.Serial, &it.WarrantyUntil, &it.Status, &it.CreatedAt, &it.UpdatedAt); err != nil {
+			&it.Type, &it.Brand, &it.Model, &it.Serial, &it.WarrantyUntil, &it.Status, &it.CreatedAt, &it.UpdatedAt); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -306,10 +322,10 @@ func (s *Store) CreateItem(in ItemInput) (Item, error) {
 		}
 		t := now()
 		if _, err := tx.Exec(`INSERT INTO items (id, kind, name, name_key, description, notes, quantity,
-				brand, model, serial, warranty_until, status, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				type, brand, model, serial, warranty_until, status, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			id, c.kind, c.name, c.key, c.description, c.notes, c.quantityOr(0),
-			c.brand, c.model, c.serial, c.warranty, c.status, t, t); err != nil {
+			c.typ, c.brand, c.model, c.serial, c.warranty, c.status, t, t); err != nil {
 			return err
 		}
 		return writeLists(tx, id, c)
@@ -340,9 +356,9 @@ func (s *Store) UpdateItem(id string, in ItemInput) (Item, error) {
 		q := c.quantityOr(old)
 		toBuy = shoppingFlag(old, q, toBuy) && c.kind == KindPart
 		if _, err := tx.Exec(`UPDATE items SET kind = ?, name = ?, name_key = ?, description = ?, notes = ?, quantity = ?, to_buy = ?,
-				brand = ?, model = ?, serial = ?, warranty_until = ?, status = ?, updated_at = ? WHERE id = ?`,
+				type = ?, brand = ?, model = ?, serial = ?, warranty_until = ?, status = ?, updated_at = ? WHERE id = ?`,
 			c.kind, c.name, c.key, c.description, c.notes, q, toBuy,
-			c.brand, c.model, c.serial, c.warranty, c.status, now(), id); err != nil {
+			c.typ, c.brand, c.model, c.serial, c.warranty, c.status, now(), id); err != nil {
 			return err
 		}
 		return writeLists(tx, id, c)
@@ -354,25 +370,28 @@ func (s *Store) UpdateItem(id string, in ItemInput) (Item, error) {
 }
 
 // forKind finishes the validation once the kind is known (on update, it may
-// come from the stored item): a tool has no slot, no count and no shopping
-// flag; a part has no tool status.
+// come from the stored item): gear has no slot, no count and no shopping
+// flag; a part has no type and no archive.
 func (c *cleanItem) forKind(kind string) error {
 	if c.kind == "" {
 		c.kind = kind
 	}
-	if c.kind == KindTool {
+	if c.kind == KindGear {
 		if len(c.slots) > 0 {
-			return invalid("Tools have no slot: they are only recorded")
+			return invalid("Gear has no slot: it is only recorded")
 		}
 		if c.quantity != nil && *c.quantity != 0 {
-			return invalid("Tools are not counted")
+			return invalid("Gear is not counted")
 		}
 		zero := 0
 		c.quantity = &zero
 		return nil
 	}
 	if c.status != "" {
-		return invalid("Only tools can be archived")
+		return invalid("Only gear can be archived")
+	}
+	if c.typ != "" {
+		return invalid("Only gear has a type")
 	}
 	return nil
 }
@@ -465,7 +484,7 @@ func (s *Store) RestoreItems(items []Item) error {
 	return s.tx(func(tx *sql.Tx) error {
 		for _, it := range items {
 			c, err := ItemInput{Kind: it.Kind, Name: it.Name, Description: it.Description, Notes: it.Notes, Quantity: &it.Quantity,
-				Slots: it.Slots, Tags: it.Tags, Aliases: it.Aliases, Brand: it.Brand, Model: it.Model, Serial: it.Serial,
+				Slots: it.Slots, Tags: it.Tags, Aliases: it.Aliases, Type: it.Type, Brand: it.Brand, Model: it.Model, Serial: it.Serial,
 				WarrantyUntil: it.WarrantyUntil, Status: it.Status}.clean()
 			if err != nil {
 				return err
@@ -484,14 +503,14 @@ func (s *Store) RestoreItems(items []Item) error {
 				created = now()
 			}
 			if _, err := tx.Exec(`INSERT INTO items (id, kind, name, name_key, description, notes, quantity, to_buy,
-					brand, model, serial, warranty_until, status, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					type, brand, model, serial, warranty_until, status, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, name = excluded.name, name_key = excluded.name_key,
 					description = excluded.description, notes = excluded.notes, quantity = excluded.quantity,
-					to_buy = excluded.to_buy, brand = excluded.brand, model = excluded.model, serial = excluded.serial,
+					to_buy = excluded.to_buy, type = excluded.type, brand = excluded.brand, model = excluded.model, serial = excluded.serial,
 					warranty_until = excluded.warranty_until, status = excluded.status, updated_at = excluded.updated_at`,
 				it.ID, c.kind, c.name, c.key, c.description, c.notes, c.quantityOr(0), it.ToBuy && c.quantityOr(0) == 0 && c.kind == KindPart,
-				c.brand, c.model, c.serial, c.warranty, c.status, created, now()); err != nil {
+				c.typ, c.brand, c.model, c.serial, c.warranty, c.status, created, now()); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(`UPDATE attachments SET orphaned_at = '' WHERE item_id = ?`, it.ID); err != nil {
@@ -518,8 +537,8 @@ func (s *Store) MoveItems(ids []string, slot string) error {
 				return err
 			}
 			if n, _ := res.RowsAffected(); n == 0 {
-				if _, _, kind, err := quantityOf(tx, id); err == nil && kind == KindTool {
-					return invalid("Tools have no slot")
+				if _, _, kind, err := quantityOf(tx, id); err == nil && kind == KindGear {
+					return invalid("Gear has no slot")
 				}
 				return ErrNotFound
 			}
@@ -642,8 +661,8 @@ func (s *Store) ChangeQuantity(id string, delta int, set *int) (Item, error) {
 		if err != nil {
 			return err
 		}
-		if kind == KindTool {
-			return invalid("Tools are not counted")
+		if kind == KindGear {
+			return invalid("Gear is not counted")
 		}
 		q := min(MaxQuantity, max(0, old+delta))
 		if set != nil {

@@ -7,31 +7,34 @@
 //   -smd              exclude items mentioning "smd"
 //   is:out            quantity 0; is:tobuy  on the shopping list
 //   is:untagged is:unplaced is:empty
-//   is:tool is:part   one kind; is:archived  tools gone (broken, lost, sold)
-//   is:warranty       tools still under warranty; has:file  with attachments
-// Tools are also found by brand, reference and serial number (exact or prefix,
-// never fuzzy: a serial one character off is another tool), and any item by
-// the names of its attached files.
+//   is:gear is:part   one kind; is:archived  gear gone (broken, lost, sold)
+//   type:watch        gear of one type; is:tool is short for type:tool
+//   is:warranty       gear still under warranty; has:file  with attachments
+// Gear is also found by type, brand, reference and serial number (exact or
+// prefix, never fuzzy: a serial one character off is another item), and any
+// item by the names of its attached files.
 //   A-12              a slot: its contents come first
 // Pure functions, tested under Node (tests/js).
 
 import { normalize, words, editDistance, typoBudget, similarity } from './text.js';
 import { parseSlot, slotName, compareSlots } from './slots.js';
 
-const FLAGS = new Set(['out', 'tobuy', 'untagged', 'unplaced', 'empty', 'tool', 'part', 'archived', 'warranty']);
+const FLAGS = new Set(['out', 'tobuy', 'untagged', 'unplaced', 'empty', 'gear', 'part', 'archived', 'warranty']);
 
 // How much a match in each field counts.
-const WEIGHTS = { name: 1, serial: 1, model: 0.9, alias: 0.9, brand: 0.8, tag: 0.7, file: 0.5, description: 0.45, notes: 0.35 };
+const WEIGHTS = { name: 1, serial: 1, model: 0.9, alias: 0.9, brand: 0.8, type: 0.75, tag: 0.7, file: 0.5, description: 0.45, notes: 0.35 };
 
 /** today (YYYY-MM-DD) decides is:warranty; tests pass a fixed one. */
 export function parseQuery(query, { today = new Date().toISOString().slice(0, 10) } = {}) {
-  const q = { terms: [], excluded: [], tags: [], boxes: [], flags: [], slot: null, raw: query, today };
+  const q = { terms: [], excluded: [], tags: [], boxes: [], types: [], flags: [], slot: null, raw: query, today };
   for (const token of String(query ?? '').trim().split(/\s+/).filter(Boolean)) {
     const lower = token.toLowerCase();
     if (token.length > 1 && token.startsWith('#')) q.tags.push(normalize(token.slice(1)));
     else if (token.length > 1 && token.startsWith('@')) q.boxes.push(token.slice(1).toUpperCase());
     else if (token.length > 1 && token.startsWith('-') && !/^-\d/.test(token)) q.excluded.push(normalize(token.slice(1)));
     else if (lower.startsWith('is:') && FLAGS.has(lower.slice(3))) q.flags.push(lower.slice(3));
+    else if (lower === 'is:tool') q.types.push('tool');
+    else if (lower.length > 5 && lower.startsWith('type:')) q.types.push(normalize(token.slice(5)));
     else if (lower === 'has:file' || lower === 'has:files') q.flags.push('file');
     else {
       const slot = parseSlot(token);
@@ -52,6 +55,7 @@ export function indexItem(item) {
     tags: (item.tags || []).map((t) => ({ text: normalize(t), words: words(t.replace(/\//g, ' ')) })),
     description: field(item.description),
     notes: field(item.notes),
+    type: field(item.type),
     brand: field(item.brand),
     model: field(item.model),
     serial: compact(item.serial),
@@ -125,6 +129,7 @@ function bestFieldScore(term, idx) {
   if (idx.serial) best = Math.max(best, WEIGHTS.serial * serialScore(term, idx.serial));
   if (idx.model?.text) best = Math.max(best, WEIGHTS.model * termScore(term, idx.model));
   if (idx.brand?.text) best = Math.max(best, WEIGHTS.brand * termScore(term, idx.brand));
+  if (idx.type?.text) best = Math.max(best, WEIGHTS.type * termScore(term, idx.type));
   for (const f of idx.files || []) best = Math.max(best, WEIGHTS.file * termScore(term, f, { fuzzy: false }));
   if (best < 0.9) {
     best = Math.max(best, WEIGHTS.description * termScore(term, idx.description, { fuzzy: false }));
@@ -134,7 +139,7 @@ function bestFieldScore(term, idx) {
 }
 
 function mentions(idx, word) {
-  return [idx.name, ...idx.aliases, ...idx.tags, idx.description, idx.notes, idx.brand, idx.model, ...(idx.files || [])]
+  return [idx.name, ...idx.aliases, ...idx.tags, idx.description, idx.notes, idx.type, idx.brand, idx.model, ...(idx.files || [])]
     .some((f) => f?.text.includes(word));
 }
 
@@ -149,6 +154,8 @@ export function hasTag(item, wanted) {
 function passesFilters(idx, q) {
   const it = idx.item;
   if (q.tags.some((t) => !hasTag(it, t))) return false;
+  // type:power matches "power tool" too: a type is matched from its start.
+  if (q.types.length && !q.types.some((t) => normalize(it.type || '').startsWith(t))) return false;
   if (q.boxes.length && !it.slots.some((s) => q.boxes.includes(parseSlot(s)?.box))) return false;
   if (q.excluded.some((w) => mentions(idx, w))) return false;
   for (const f of q.flags) {
@@ -156,7 +163,7 @@ function passesFilters(idx, q) {
     if (f === 'tobuy' && !it.to_buy) return false;
     if (f === 'untagged' && it.tags.length) return false;
     if (f === 'unplaced' && it.slots.length) return false;
-    if ((f === 'tool' || f === 'part') && (it.kind || 'part') !== f) return false;
+    if ((f === 'gear' || f === 'part') && (it.kind || 'part') !== f) return false;
     if (f === 'archived' && it.status !== 'archived') return false;
     if (f === 'warranty' && !(it.warranty_until && it.warranty_until >= q.today)) return false;
     if (f === 'file' && !(it.attachments || []).length) return false;

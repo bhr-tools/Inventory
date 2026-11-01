@@ -1,9 +1,10 @@
 // A box drawn as a grid of its slots. Move with h/j/k/l, switch box with
 // [ and ], open a slot with Enter, add to it with a, and swap two slots with
 // s on the first then s (or Enter) on the second, or by dragging one onto the other.
+// D deletes the box, once it is empty.
 
 import { h, clear, isTextInput } from '../dom.js';
-import { openModal, promptDialog, toast } from '../ui/overlay.js';
+import { openModal, promptDialog, confirmDialog, toast } from '../ui/overlay.js';
 import { parseSlot, slotName, isBoxId } from '../slots.js';
 import { api } from '../api.js';
 
@@ -24,6 +25,8 @@ export function openGrid(app, boxId, cursorSlot, { onClose } = {}) {
   const config = () => app.boxes.find((b) => b.id === box) || { id: box, slots: 0, columns: 0 };
   const used = () => [...app.slotMap.keys()].map(parseSlot).filter((s) => s?.box === box).map((s) => s.number);
   const size = () => Math.max(config().slots, ...used(), 1);
+  // Parts in the box (a part in two of its slots counts once).
+  const parts = () => new Set([...app.slotMap].filter(([s]) => parseSlot(s)?.box === box).flatMap(([, items]) => items.map((it) => it.id))).size;
   const columns = () => config().columns || Math.min(6, size());
 
   function render() {
@@ -36,7 +39,7 @@ export function openGrid(app, boxId, cursorSlot, { onClose } = {}) {
       clear(settings);
       clear(grid);
       clear(actions);
-      hint.textContent = 'No boxes yet: add a part with a slot like A-1, or create a box with +.';
+      hint.textContent = 'No boxes yet: create one with +.';
       return;
     }
     renderSettings();
@@ -104,10 +107,47 @@ export function openGrid(app, boxId, cursorSlot, { onClose } = {}) {
         }
       });
     }
+    const inside = parts();
     settings.replaceChildren(
       h('label', null, 'Slots', slots),
       h('label', null, 'Columns', cols),
-      h('span', { class: 'grid-count' }, `${used().length} used, ${Math.max(0, size() - used().length)} free`));
+      h('span', { class: 'grid-count' }, `${used().length} used, ${Math.max(0, size() - used().length)} free`),
+      h('span', { class: 'grid-delete' },
+        // A box with parts cannot go: say what is in the way, and show it.
+        inside
+          ? [h('span', { class: 'field-info' }, `${inside} part${inside === 1 ? '' : 's'} inside: move them first`),
+            h('button', { type: 'button', class: 'link-button', onclick: () => { modal.close(); app.setQuery(`@${box}`); } }, 'Show them')]
+          : null,
+        h('button', {
+          type: 'button',
+          class: 'button danger-text',
+          disabled: inside > 0,
+          title: inside ? 'Only an empty box can be deleted' : `Delete box ${box}`,
+          onclick: deleteBox,
+        }, `Delete box ${box}`)));
+  }
+
+  async function deleteBox() {
+    if (parts()) return toast(`Box ${box} still holds parts: move or delete them first`, { type: 'error' });
+    const { id, slots, columns } = config();
+    if (!(await confirmDialog(`Delete box ${id}?`, `Its ${slots || size()} slots are empty. Undo brings it back.`, { okText: 'Delete box' }))) return;
+    const data = await app.run(() => api.deleteBox(id));
+    if (!data) return;
+    app.setInventory(data);
+    app.done(`Deleted box ${id}`, async () => {
+      const restored = await api.setBox(id, slots, columns);
+      // Undone with the view still open: show the box again.
+      if (modal.el.isConnected) {
+        app.setInventory(restored);
+        render();
+      }
+      return restored;
+    });
+    box = app.boxes[0]?.id;
+    cursor = 1;
+    marked = null;
+    render();
+    modal.el.focus();
   }
 
   function switchBox(id) {
@@ -128,6 +168,8 @@ export function openGrid(app, boxId, cursorSlot, { onClose } = {}) {
       app.setInventory(data);
     }
     switchBox(upper);
+    // The keys work again: the dialog took the focus and the + it came from is redrawn.
+    modal.el.focus();
   }
 
   function open(n) {
@@ -187,6 +229,7 @@ export function openGrid(app, boxId, cursorSlot, { onClose } = {}) {
         modal.close();
         app.add({ slot: slotName({ box, number: cursor }) });
       },
+      D: deleteBox,
     }[e.key];
     if (handled) {
       e.preventDefault();

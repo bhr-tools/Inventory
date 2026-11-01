@@ -198,6 +198,24 @@ def desktop(browser):
     expect(page.locator(".grid .cell").nth(5)).to_contain_text("Multimètre Fluke")
     page.keyboard.press("]")
     expect(page.locator(".grid-tab.active")).to_have_text("B")
+    # A box holding parts cannot be deleted; an empty one can, with undo.
+    expect(page.locator(".grid-delete .button")).to_be_disabled()
+    expect(page.locator(".grid-delete")).to_contain_text("inside: move them first")
+    page.locator(".grid-tab.new").click()
+    page.locator(".dialog input").fill("Z")
+    page.keyboard.press("Enter")
+    expect(page.locator(".grid-tab.active")).to_have_text("Z")
+    shot(page, "07a-delete-box")
+    page.keyboard.press("D")
+    page.locator(".dialog .button.danger").click()
+    expect(page.locator(".toast").last).to_contain_text("Deleted box Z")
+    expect(page.locator(".grid-tab", has_text="Z")).to_have_count(0)
+    page.locator(".toast .toast-action").last.click()
+    expect(page.locator(".grid-tab", has_text="Z")).to_have_count(1)
+    page.locator(".grid-tab", has_text="Z").click()
+    page.locator(".grid-delete .button").click()
+    page.locator(".dialog .button.danger").click()
+    expect(page.locator(".grid-tab", has_text="Z")).to_have_count(0)
     page.keyboard.press("Escape")
 
     # Quantity: ESP32 went 1 + 4 = 5; - three times, then x to 0.
@@ -270,24 +288,25 @@ def desktop(browser):
     shot(page, "08-tags")
     page.keyboard.press("Escape")
 
-    # Tools: a register with files.
+    # Gear: a register of valuables, with files.
     page.keyboard.press("Escape")
     type_search(page, "")
     page.keyboard.press("Escape")
     azerty(page, "é")
-    expect(page.locator("#tab-tools")).to_have_class("tab active")
-    expect(page.locator(".empty-state")).to_contain_text("No tool yet")
+    expect(page.locator("#tab-gear")).to_have_class("tab active")
+    expect(page.locator(".empty-state")).to_contain_text("No gear yet")
     page.keyboard.press("a")
     form = page.locator(".item-modal")
-    expect(form.locator(".modal-title")).to_have_text("New tool")
+    expect(form.locator(".modal-title")).to_have_text("New gear")
     form.locator("input").first.type("Perceuse visseuse")
+    form.locator('input[aria-label="Type"]').fill("Power tool")
     form.locator('input[aria-label="Brand"]').fill("Makita")
     form.locator('input[aria-label="Reference"]').fill("DHP482")
     form.locator('input[aria-label="Serial number"]').fill("SN 4821-77")
     form.locator('input[aria-label="Warranty until"]').fill("2027-03-31")
     form.locator('input[aria-label="Tag"]').type("power")
     form.locator('input[aria-label="Tag"]').press("Enter")
-    shot(page, "15-tool-add")
+    shot(page, "15-gear-add")
     form.locator(".modal-action").click()
     expect(form).to_have_count(0)
     expect(rows(page)).to_have_count(1)
@@ -318,7 +337,7 @@ def desktop(browser):
     }""")
     expect(page.locator(".preview .file-row")).to_have_count(2)
     expect(page.locator(".preview .file-label").nth(1)).to_have_text("manual")
-    shot(page, "16-tool-files")
+    shot(page, "16-gear-files")
 
     # The signed link opens the file without the session (as iOS's viewer does).
     url = file_link.first.get_attribute("href")
@@ -329,12 +348,12 @@ def desktop(browser):
     assert stranger.request.get(f"{BASE}{url.split('?')[0]}").status == 401
     stranger.close()
 
-    # Found by serial, from any tab; parts point to the tools.
+    # Found by serial, from any tab; parts point to the gear.
     azerty(page, "&")
     type_search(page, "makita")
-    expect(page.locator(".empty-state")).to_contain_text("1 in tools")
+    expect(page.locator(".empty-state")).to_contain_text("1 in gear")
     page.locator(".empty-state .link-button").click()
-    expect(page.locator("#tab-tools")).to_have_class("tab active")
+    expect(page.locator("#tab-gear")).to_have_class("tab active")
     type_search(page, "SN4821")
     expect(rows(page)).to_have_count(1)
 
@@ -346,7 +365,7 @@ def desktop(browser):
     type_search(page, "")
     page.keyboard.press("Escape")
     expect(rows(page)).to_have_count(0)
-    expect(page.locator(".list-note")).to_contain_text("1 archived tool hidden")
+    expect(page.locator(".list-note")).to_contain_text("1 archived item hidden")
     page.locator(".list-note .button").click()
     expect(page.locator(".archive-banner")).to_be_visible()
     expect(rows(page)).to_have_count(1)
@@ -355,7 +374,7 @@ def desktop(browser):
     type_search(page, "is:archived")
     expect(rows(page)).to_have_count(1)
 
-    # Deleting the tool and undoing keeps its files.
+    # Deleting the item and undoing keeps its files.
     page.keyboard.press("Escape")
     page.keyboard.press("d")
     expect(rows(page)).to_have_count(0)
@@ -363,13 +382,37 @@ def desktop(browser):
     expect(rows(page)).to_have_count(1)
     expect(page.locator(".preview .file-row")).to_have_count(2)
 
-    # Restored: back with the tools in use.
+    # Restored: back with the gear in use.
     page.keyboard.press("A")
     expect(page.locator(".toast")).to_contain_text("Restored")
     type_search(page, "")
     page.keyboard.press("Escape")
     page.locator(".archive-banner .button").click()
     expect(rows(page)).to_have_count(1)
+
+    # A watch: the type picks offer the one already used, and the list comes by type.
+    page.keyboard.press("a")
+    form = page.locator(".item-modal")
+    expect(form.locator(".pick", has_text="power tool")).to_be_visible()
+    form.locator("input").first.type("Seiko 5")
+    form.locator('input[aria-label="Type"]').fill("watch")
+    form.locator('input[aria-label="Brand"]').fill("Seiko")
+    form.locator(".modal-action").click()
+    expect(form).to_have_count(0)
+    type_search(page, "")
+    page.keyboard.press("Escape")
+    expect(page.locator(".box-head")).to_have_count(2)
+    expect(page.locator(".box-head").first).to_contain_text("power tool")
+    expect(page.locator(".box-head").nth(1)).to_contain_text("watch")
+    shot(page, "16b-gear-types")
+    type_search(page, "watch")
+    expect(rows(page)).to_have_count(1)
+    expect(rows(page).first.locator(".row-type")).to_have_text("watch")
+    type_search(page, "type:power")
+    expect(rows(page)).to_have_count(1)
+    expect(rows(page).first).to_contain_text("Perceuse visseuse")
+    type_search(page, "")
+    page.keyboard.press("Escape")
     azerty(page, "&")
 
     page.keyboard.press("?")
@@ -475,10 +518,10 @@ def phone(browser, state):
     expect(page.locator(".grid .cell").nth(13)).to_contain_text("Résistance 10k")
     shot(page, "14-phone-grid")
 
-    # Tools on the phone: the sheet takes a file from the picker and shows it at once.
+    # Gear on the phone: the sheet takes a file from the picker and shows it at once.
     page.locator(".modal-close").last.tap()
-    page.locator("#tab-tools").tap()
-    rows(page).first.tap()
+    page.locator("#tab-gear").tap()
+    rows(page).filter(has_text="Perceuse").tap()
     sheet = page.locator(".preview-sheet")
     expect(sheet.locator(".file-row")).to_have_count(2)
     with page.expect_file_chooser() as chooser:
@@ -486,7 +529,7 @@ def phone(browser, state):
     chooser.value.set_files({"name": "photo.jpg", "mimeType": "image/jpeg", "buffer": b"\xff\xd8\xff\xe0" + b"0" * 64})
     expect(sheet.locator(".file-row")).to_have_count(3)
     expect(sheet.locator(".file-label").nth(2)).to_have_text("photo")
-    shot(page, "17-phone-tool")
+    shot(page, "17-phone-gear")
     ctx.close()
 
 

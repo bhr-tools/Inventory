@@ -1,6 +1,6 @@
 # Inventory
 
-A self-hosted inventory for parts and tools stored in compartment boxes. Every
+A self-hosted inventory for parts stored in compartment boxes, and a record of your gear. Every
 compartment has an id like `A-12` (box `A`, slot `12`). Type a slot to see
 what it holds; type what you are looking for, even half-remembered, to find its
 slot.
@@ -24,16 +24,20 @@ ruled tables grouped by box, IBM Plex (shipped with the app, no font service).
 - **Shopping list:** an item whose quantity *drops* to 0 goes to the second
   tab (an item created at 0 does not). Set a quantity when you bought some, or
   delete it if you won't buy it again.
-- **Tools register:** a second tab records tools (no slot, no count): brand,
-  reference, serial number and warranty end, shown in the tool's details. A
-  tool that is broken, lost or sold is **archived** (`A`): it leaves the list
-  but stays on record with its serial number and invoice, under “Show
-  archived” or `is:archived`.
-- **Attached files:** invoices, manuals, photos, datasheets on any tool or part.
+- **Gear register:** a second tab records valuables (no slot, no count): tools,
+  a watch, a 3D printer, a laptop… Each has a free **type** (the types already
+  used are offered) and the list comes grouped by type. Brand, reference,
+  serial number and warranty end are shown in the item's details. Gear that is
+  broken, lost or sold is **archived** (`A`): it leaves the list but stays on
+  record with its serial number and invoice, under “Show archived” or
+  `is:archived`.
+- **Attached files:** invoices, manuals, photos, datasheets on any item.
   Drop them on the details, or press `f` (on a phone: camera, photos or files).
   They open through a signed link, which also works in the viewer iOS opens
   from a home screen app, and are served sandboxed.
 - **Boxes as grids:** see free slots, swap two slots with `s` or by dragging.
+  An empty box can be deleted (`D` or the button under its size); a box that
+  still holds parts says how many and shows them, to move them first.
 - **Undo** for every change.
 
 ## Search syntax
@@ -48,10 +52,11 @@ ruled tables grouped by box, IBM Plex (shipped with the app, no font service).
 | `is:out`, `is:tobuy` | quantity 0, or on the shopping list |
 | `is:empty` | free slots of the boxes whose size is set |
 | `is:untagged`, `is:unplaced` | items without tags, or without a slot |
-| `makita`, `dhp482`, `sn4821` | tools by brand, reference, or serial (from its start, never fuzzy) |
-| `is:tool`, `is:part` | one kind |
-| `is:archived` | archived tools (broken, lost, sold) |
-| `is:warranty`, `has:file` | tools still under warranty; items with attachments |
+| `makita`, `dhp482`, `sn4821` | gear by brand, reference, or serial (from its start, never fuzzy) |
+| `type:watch` | gear of one type; `is:tool` is short for `type:tool` |
+| `is:gear`, `is:part` | one kind |
+| `is:archived` | archived gear (broken, lost, sold) |
+| `is:warranty`, `has:file` | gear still under warranty; items with attachments |
 
 The query is kept in the URL (`/?q=A-12`), so a slot can be bookmarked or put
 in a QR code on the box.
@@ -70,8 +75,8 @@ page) open the same form, on a computer and on a phone:
   form only offers boxes that exist.
 - **Quantity** with − / +, **tags** with completion from the existing ones,
   and, folded below, other names, a description and notes.
-- **Tools** take a brand, a reference, a serial number and a warranty end
-  instead of a slot and a count, and can be archived from the same form.
+- **Gear** takes a type, a brand, a reference, a serial number and a warranty
+  end instead of a slot and a count, and can be archived from the same form.
 
 Moving (`m`) and swapping (`s`) use the same box map: tap a free slot to move
 there, a used one to swap the two slots.
@@ -91,14 +96,14 @@ Press `?` in the app for the cheatsheet.
 | `a` | Add an item |
 | `+` / `-` | One more / one less (at 0, it goes to the shopping list) |
 | `x` | Type the quantity |
-| `1` / `2` / `3` (`&` / `é` / `"` on AZERTY) | Parts / tools / shopping |
+| `1` / `2` / `3` (`&` / `é` / `"` on AZERTY) | Parts / gear / shopping |
 | `f` / `o` | Attach files / open the first file |
 | `m` | Move, on the map of the box |
 | `s` | Swap with another slot, on the map |
 | `t` | Add tags, or remove them with `-tag` |
-| `A` | Archive a tool, or restore it |
+| `A` | Archive gear, or restore it |
 | `d` / `u` | Delete / undo |
-| `b` | Boxes (grid: `hjkl` move, `[` `]` switch box, `s` swap, `a` add) |
+| `b` | Boxes (grid: `hjkl` move, `[` `]` switch box, `s` swap, `a` add, `D` delete an empty box) |
 | `T` | Tags (rename, merge, delete) |
 
 ## Running

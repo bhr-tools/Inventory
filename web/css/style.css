@@ -307,10 +307,12 @@ select.input { cursor: pointer; }
 .row.thead + .box-head { margin-top: 10px; }
 
 /* Tools: mark | name | brand · ref | serial | docs */
-.row.tool-row { grid-template-columns: 3px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 0.8fr) 7ch; min-height: 36px; }
+.row.gear-row { grid-template-columns: 3px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 0.8fr) 7ch; min-height: 36px; }
 .row-name-cell { display: flex; flex-direction: column; justify-content: center; }
 .row-name-cell .row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .row-sub { display: none; }
+.row-name-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.row-type { flex: none; color: var(--muted); font: 12px var(--mono); }
 .row-brand { color: var(--muted); }
 .row-serial { font: 13px var(--mono); }
 .row-files { color: var(--muted); font: 13px var(--mono); }
@@ -529,6 +531,7 @@ select.input { cursor: pointer; }
 .pick-row:not(:empty) { margin: 6px 0 2px; }
 .pick { min-width: 48px; height: 30px; padding: 0 10px; border: 1px solid var(--ink); font: 500 13px var(--mono); }
 .pick.suggest { border-style: dashed; color: var(--muted); }
+.pick.active { background: var(--ink); color: var(--on-ink); }
 .pick:hover { background: var(--sunk); }
 .stepper { display: grid; grid-template-columns: 40px 72px 40px; width: max-content; height: 36px; border: 1px solid var(--ink); }
 .stepper button { font: 400 18px var(--mono); }
@@ -564,6 +567,8 @@ select.input { cursor: pointer; }
 .grid-settings label { display: flex; align-items: center; gap: 6px; font: 600 11px var(--cond); letter-spacing: 0.08em; text-transform: uppercase; }
 .grid-settings .input.small { width: 7ch; height: 28px; font-family: var(--mono); }
 .grid-count { margin-left: auto; font: 12px var(--mono); }
+.grid-delete { display: flex; flex-basis: 100%; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 12px; }
+.grid-delete .field-info { margin: 0; }
 .grid { display: grid; gap: 4px; }
 .cell {
   display: flex;
@@ -835,9 +840,9 @@ html, button, input, select, textarea, .row, .cell, .map-cell { touch-action: ma
   .row-name { font-size: 15px; }
   .row-slot, .row-qty { font-size: 15px; }
   .row.thead { min-height: 32px; }
-  .row.tool-row { grid-template-columns: 0 minmax(0, 1fr); min-height: 58px; padding: 6px 0; }
-  .row.tool-row .row-brand, .row.tool-row .row-serial, .row.tool-row .row-files, .row.tool-row.thead span:nth-child(n+3) { display: none; }
-  .row.tool-row.thead { min-height: 32px; padding: 0; }
+  .row.gear-row { grid-template-columns: 0 minmax(0, 1fr); min-height: 58px; padding: 6px 0; }
+  .row.gear-row .row-brand, .row.gear-row .row-serial, .row.gear-row .row-files, .row.gear-row.thead span:nth-child(n+3) { display: none; }
+  .row.gear-row.thead { min-height: 32px; padding: 0; }
   .row-sub { display: block; margin-top: 2px; overflow: hidden; color: var(--muted); font: 13px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
   .box-head { margin-top: 16px; }
   .slot-banner { min-height: 48px; }

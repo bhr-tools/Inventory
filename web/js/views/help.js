@@ -23,12 +23,12 @@ const SECTIONS = [
     [['m'], 'Move, on the map of the box'],
     [['s'], 'Swap: tap a used slot on the map'],
     [['t'], 'Add or remove tags'],
-    [['A'], 'Archive a tool (broken, lost, sold), or restore it'],
+    [['A'], 'Archive gear (broken, lost, sold), or restore it'],
     [['d'], 'Delete'],
     [['u'], 'Undo'],
   ]],
   ['Views', [
-    [['1', '2', '3'], 'Parts / tools / to buy (& é " on AZERTY)'],
+    [['1', '2', '3'], 'Parts / gear / to buy (& é " on AZERTY)'],
     [['b'], 'Boxes, as grids'],
     [['T'], 'Tags'],
     [['?'], 'This help'],
@@ -39,6 +39,7 @@ const SECTIONS = [
     [['Enter'], 'Show the slot'],
     [['a'], 'Add to the slot'],
     [['s'], 'Swap: on the first slot, then the second'],
+    [['D'], 'Delete the box (only when empty)'],
   ]],
 ];
 
@@ -51,8 +52,9 @@ const SYNTAX = [
   ['is:out  is:tobuy', 'quantity 0, or on the shopping list'],
   ['is:empty', 'free slots of the configured boxes'],
   ['is:untagged  is:unplaced', 'items without tags, or without a slot'],
-  ['makita  sn12345', 'tools by brand, reference or serial (from its start)'],
-  ['is:archived', 'archived tools (broken, lost, sold), hidden from the list'],
+  ['makita  sn12345', 'gear by brand, reference or serial (from its start)'],
+  ['type:watch', 'gear of one type (is:tool for type:tool)'],
+  ['is:archived', 'archived gear (broken, lost, sold), hidden from the list'],
   ['is:warranty  has:file', 'still under warranty; with attachments'],
 ];
 

@@ -64,7 +64,7 @@ export function initKeys(app) {
       case 'x': app.setQuantity(); return true;
       // 1 2 3, or & é " on AZERTY: the tabs.
       case '1': case '&': app.setView('parts'); return true;
-      case '2': case 'é': app.setView('tools'); return true;
+      case '2': case 'é': app.setView('gear'); return true;
       case '3': case '"': app.setView('shopping'); return true;
       case 'f': app.pickFiles(); return true;
       case 'o': app.openFirstFile(); return true;

@@ -65,7 +65,9 @@ func TestMigratesStockToQuantity(t *testing.T) {
 	}
 }
 
-func TestMigratesBrokenAndLostToArchived(t *testing.T) {
+// Migrations 5 and 6: broken and lost tools are archived, and every tool
+// becomes gear of type tool.
+func TestMigratesToolsToArchivedGear(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v4.db")
 	old, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -94,9 +96,9 @@ func TestMigratesBrokenAndLostToArchived(t *testing.T) {
 	}
 	got := map[string]string{}
 	for _, it := range items {
-		got[it.Name] = it.Status
+		got[it.Name] = it.Kind + " " + it.Type + " " + it.Status
 	}
-	want := map[string]string{"Saw": StatusArchived, "Pliers": StatusArchived, "Drill": ""}
+	want := map[string]string{"Saw": "gear tool archived", "Pliers": "gear tool archived", "Drill": "gear tool "}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("after migration: %v, want %v", got, want)
 	}
@@ -319,6 +321,13 @@ func TestBoxes(t *testing.T) {
 	if err := s.DeleteBox("Z"); err != nil {
 		t.Fatal(err)
 	}
+	// A box that still holds a part is kept, layout included.
+	if err := s.DeleteBox("A"); err == nil {
+		t.Fatal("a box holding a part was deleted")
+	}
+	if boxes, _ := s.Boxes(); !reflect.DeepEqual(boxes, []Box{{"A", 24, 6}, {"B", 0, 0}}) {
+		t.Fatalf("boxes after delete = %v", boxes)
+	}
 	if _, err := s.SetBox(Box{ID: "1A"}); err == nil {
 		t.Fatal("invalid box id accepted")
 	}
@@ -398,19 +407,21 @@ func TestChangeQuantity(t *testing.T) {
 	}
 }
 
-func TestTools(t *testing.T) {
+func TestGear(t *testing.T) {
 	s := openTest(t)
-	tool := mustCreate(t, s, ItemInput{Kind: KindTool, Name: "Drill", Brand: " Makita ", Model: "DHP482", Serial: "A1 2", WarrantyUntil: "2027-03-31"})
-	if tool.Kind != KindTool || tool.Brand != "Makita" || tool.Serial != "A1 2" || tool.Quantity != 0 {
+	tool := mustCreate(t, s, ItemInput{Kind: KindGear, Type: " Power  Tool ", Name: "Drill", Brand: " Makita ", Model: "DHP482", Serial: "A1 2", WarrantyUntil: "2027-03-31"})
+	if tool.Kind != KindGear || tool.Type != "power tool" || tool.Brand != "Makita" || tool.Serial != "A1 2" || tool.Quantity != 0 {
 		t.Fatalf("tool: %+v", tool)
 	}
 	for name, in := range map[string]ItemInput{
-		"slot":        {Kind: KindTool, Name: "Saw", Slots: []string{"A-1"}},
-		"quantity":    {Kind: KindTool, Name: "Saw", Quantity: intPtr(2)},
-		"date":        {Kind: KindTool, Name: "Saw", WarrantyUntil: "03/2027"},
-		"status":      {Kind: KindTool, Name: "Saw", Status: "stolen"},
+		"slot":        {Kind: KindGear, Name: "Saw", Slots: []string{"A-1"}},
+		"quantity":    {Kind: KindGear, Name: "Saw", Quantity: intPtr(2)},
+		"date":        {Kind: KindGear, Name: "Saw", WarrantyUntil: "03/2027"},
+		"status":      {Kind: KindGear, Name: "Saw", Status: "stolen"},
 		"kind":        {Kind: "gadget", Name: "Saw"},
 		"part status": {Name: "Bolt", Status: "lost"},
+		"part type":   {Name: "Bolt", Type: "watch"},
+		"long type":   {Kind: KindGear, Name: "Saw", Type: strings.Repeat("x", MaxTypeLength+1)},
 	} {
 		if _, err := s.CreateItem(in); err == nil {
 			t.Errorf("%s: accepted", name)
@@ -418,8 +429,8 @@ func TestTools(t *testing.T) {
 	}
 	// An update without a kind keeps it; an archived tool stays recorded, and
 	// the statuses of older exports read as archived.
-	got, err := s.UpdateItem(tool.ID, ItemInput{Name: "Drill", Brand: "Makita", Status: "lost"})
-	if err != nil || got.Kind != KindTool || got.Status != StatusArchived || got.Model != "" {
+	got, err := s.UpdateItem(tool.ID, ItemInput{Name: "Drill", Brand: "Makita", Type: "tool", Status: "lost"})
+	if err != nil || got.Kind != KindGear || got.Type != "tool" || got.Status != StatusArchived || got.Model != "" {
 		t.Fatalf("update: %+v %v", got, err)
 	}
 	if err := s.MoveItems([]string{tool.ID}, "A-1"); err == nil {
@@ -428,11 +439,23 @@ func TestTools(t *testing.T) {
 	if _, err := s.ChangeQuantity(tool.ID, 1, nil); err == nil {
 		t.Error("a tool was counted")
 	}
+	// The kind of older exports: tool reads as gear of type tool.
+	if _, _, err := s.ImportItems([]ItemInput{{Kind: "tool", Name: "Saw"}, {Kind: "tool", Type: "garden", Name: "Rake"}}); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := s.Items()
+	types := map[string]string{}
+	for _, it := range items {
+		types[it.Name] = it.Kind + " " + it.Type
+	}
+	if types["Saw"] != "gear tool" || types["Rake"] != "gear garden" {
+		t.Errorf("legacy import: %v", types)
+	}
 }
 
 func TestAttachmentLifecycle(t *testing.T) {
 	s := openTest(t)
-	tool := mustCreate(t, s, ItemInput{Kind: KindTool, Name: "Drill"})
+	tool := mustCreate(t, s, ItemInput{Kind: KindGear, Name: "Drill"})
 	a, err := s.AddAttachment(tool.ID, AttachmentInput{Filename: "../../etc/Facture.pdf", ContentType: "application/pdf", Label: "invoice"}, strings.NewReader("%PDF-1.4"))
 	if err != nil {
 		t.Fatal(err)

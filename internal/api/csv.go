@@ -17,11 +17,11 @@ import (
 // CSV columns. Slots and tags never contain spaces, so they are separated by
 // spaces; aliases may, so they are separated by semicolons.
 // An empty quantity is 0 for a new item and keeps the count of an existing one.
-// kind is part or tool; tools fill brand, model, serial, warranty_until
-// (YYYY-MM-DD) and status (archived or empty; broken and lost from older
-// exports read as archived). Attachments are not in the
+// kind is part or gear; gear fills type, brand, model, serial, warranty_until
+// (YYYY-MM-DD) and status (archived or empty). From older exports, the kind
+// tool reads as gear of type tool, and broken and lost as archived. Attachments are not in the
 // file: the server backups hold them.
-var csvHeader = []string{"name", "kind", "slots", "tags", "aliases", "quantity", "brand", "model", "serial", "warranty_until", "status", "description", "notes"}
+var csvHeader = []string{"name", "kind", "slots", "tags", "aliases", "quantity", "type", "brand", "model", "serial", "warranty_until", "status", "description", "notes"}
 
 func (a *API) exportCSV(w http.ResponseWriter, r *http.Request) {
 	items, err := a.store.Items()
@@ -34,7 +34,7 @@ func (a *API) exportCSV(w http.ResponseWriter, r *http.Request) {
 	_ = out.Write(csvHeader)
 	for _, it := range items {
 		_ = out.Write([]string{it.Name, it.Kind, strings.Join(it.Slots, " "), strings.Join(it.Tags, " "),
-			strings.Join(it.Aliases, "; "), strconv.Itoa(it.Quantity), it.Brand, it.Model, it.Serial,
+			strings.Join(it.Aliases, "; "), strconv.Itoa(it.Quantity), it.Type, it.Brand, it.Model, it.Serial,
 			it.WarrantyUntil, it.Status, it.Description, it.Notes})
 	}
 	out.Flush()
@@ -124,6 +124,7 @@ func parseCSV(src io.Reader) ([]db.ItemInput, error) {
 		}
 		inputs = append(inputs, db.ItemInput{
 			Kind:          field("kind"),
+			Type:          field("type"),
 			Brand:         field("brand"),
 			Model:         field("model"),
 			Serial:        field("serial"),

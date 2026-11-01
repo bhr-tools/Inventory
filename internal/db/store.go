@@ -184,6 +184,12 @@ var migrations = []string{
 	// 5: broken and lost tools become archived, one state for every tool that
 	// is gone but kept on record.
 	`UPDATE items SET status = 'archived' WHERE status <> '';`,
+
+	// 6: tools become gear, any valuable kept on record (a watch, a 3D
+	// printer, a laptop), told apart by a free type; the former tools get the
+	// type "tool".
+	`ALTER TABLE items ADD COLUMN type TEXT NOT NULL DEFAULT '';
+	UPDATE items SET kind = 'gear', type = 'tool' WHERE kind = 'tool';`,
 }
 
 func (s *Store) migrate() error {

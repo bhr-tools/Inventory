@@ -20,7 +20,8 @@ const (
 	MaxBoxSlots          = 999
 	MaxListLength        = 50 // slots, tags or aliases of one item
 	MaxQuantity          = 1_000_000
-	MaxToolFieldLength   = 100 // brand, model, serial
+	MaxGearFieldLength   = 100 // brand, model, serial
+	MaxTypeLength        = 40
 )
 
 // Slot is one compartment of a box, written "A-12".

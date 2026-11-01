@@ -89,12 +89,29 @@ func (s *Store) SetBox(b Box) (Box, error) {
 	return b, err
 }
 
-// DeleteBox forgets the layout of a box. Its items keep their slots.
+// DeleteBox removes an empty box. A box that still holds parts is refused:
+// they have to be moved or deleted first.
 func (s *Store) DeleteBox(id string) error {
 	boxID, err := ParseBoxID(id)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`DELETE FROM boxes WHERE id = ?`, boxID)
-	return err
+	return s.tx(func(tx *sql.Tx) error {
+		var parts int
+		if err := tx.QueryRow(`SELECT COUNT(DISTINCT item_id) FROM item_slots WHERE box = ?`, boxID).Scan(&parts); err != nil {
+			return err
+		}
+		if parts > 0 {
+			return invalid("Box %s still holds %d part%s: move or delete them first", boxID, parts, plural(parts))
+		}
+		_, err := tx.Exec(`DELETE FROM boxes WHERE id = ?`, boxID)
+		return err
+	})
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }

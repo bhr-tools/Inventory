@@ -18,7 +18,7 @@ import { openSlotMap } from './views/slotmap.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_ROWS = 300;
-const VIEWS = ['parts', 'tools', 'shopping']; // rendered at once; the count shows the rest
+const VIEWS = ['parts', 'gear', 'shopping']; // rendered at once; the count shows the rest
 
 class App {
   constructor() {
@@ -31,13 +31,15 @@ class App {
     this.knownBoxes = new Set();
     const params = new URLSearchParams(location.search);
     this.query = params.get('q') || '';
-    // 'parts', 'tools' (the register), or 'shopping': the parts whose quantity dropped to 0.
-    this.view = VIEWS.includes(params.get('view')) ? params.get('view') : 'parts';
-    // Tools tab: the archived tools (broken, lost, sold) instead of those in use.
-    this.archived = this.view === 'tools' && params.get('archived') === '1';
+    // 'parts', 'gear' (the register of valuables), or 'shopping': the parts whose quantity dropped to 0.
+    // ?view=tools is the address of the gear tab before it was renamed.
+    const view = params.get('view') === 'tools' ? 'gear' : params.get('view');
+    this.view = VIEWS.includes(view) ? view : 'parts';
+    // Gear tab: the archived gear (broken, lost, sold) instead of what is in use.
+    this.archived = this.view === 'gear' && params.get('archived') === '1';
     // { view, count } or { archived, count }: matches elsewhere, when this list has none.
     this.elsewhere = null;
-    this.grouped = false; // the parts list shows box headings (no words searched)
+    this.grouped = false; // box headings over the parts, type headings over the gear (no words searched)
     this.editingQty = null; // item id whose quantity is being typed in the details
     this.pendingQuantity = new Map(); // item id → requests in flight
     this.sheet = null; // phones: the full-screen details, { modal, body, row }
@@ -64,7 +66,7 @@ class App {
     $('more-button').addEventListener('click', (e) => this.openMoreMenu(e.currentTarget));
     $('status-help').addEventListener('click', () => openHelp());
     for (const v of VIEWS) {
-      $(`tab-${v}`).addEventListener('click', () => (v === 'tools' && this.archived ? this.setArchived(false) : this.setView(v)));
+      $(`tab-${v}`).addEventListener('click', () => (v === 'gear' && this.archived ? this.setArchived(false) : this.setView(v)));
     }
     this.initDrop();
     onUnauthorized(() => this.showLogin());
@@ -159,9 +161,9 @@ class App {
     this.render();
   }
 
-  /** Tools tab: shows the archived tools, or those in use. */
+  /** Gear tab: shows the archived gear, or what is in use. */
   setArchived(on) {
-    this.view = 'tools';
+    this.view = 'gear';
     this.archived = on;
     this.selected.clear();
     this.syncURL();
@@ -186,7 +188,7 @@ class App {
     const q = parseQuery(this.query);
     this.slotBanner = null;
     this.elsewhere = null;
-    this.grouped = this.view === 'parts' && !q.terms.length;
+    this.grouped = this.view !== 'shopping' && !q.terms.length;
     if (this.view === 'shopping') {
       this.rows = search(this.index, q).hits
         .filter((hit) => hit.item.to_buy)
@@ -198,20 +200,24 @@ class App {
       return;
     }
     const { slot, hits } = search(this.index, q);
-    const kind = this.view === 'tools' ? 'tool' : 'part';
-    // Archived tools only show in their own list, or when asked for (is:archived).
-    const archived = kind === 'tool' && (this.archived || q.flags.includes('archived'));
+    const kind = this.view === 'gear' ? 'gear' : 'part';
+    // Archived gear only shows in its own list, or when asked for (is:archived).
+    const archived = kind === 'gear' && (this.archived || q.flags.includes('archived'));
     const shown = (it) => itemKind(it) === kind && (kind === 'part' || isArchived(it) === archived);
     this.rows = hits.filter((hit) => shown(hit.item))
       .map((hit) => ({ kind: 'item', item: hit.item, inSlot: hit.inSlot }));
     // Nothing here but something in the other list: say so rather than "no match".
     if (!this.rows.length && this.query.trim()) {
-      const other = hits.filter((hit) => itemKind(hit.item) === 'tool' && isArchived(hit.item) !== archived).length;
+      const other = hits.filter((hit) => itemKind(hit.item) === 'gear' && isArchived(hit.item) !== archived).length;
       const count = hits.filter((hit) => itemKind(hit.item) !== kind).length;
-      if (kind === 'tool' && other) this.elsewhere = { archived: !archived, count: other };
-      else if (count) this.elsewhere = { view: kind === 'tool' ? 'parts' : 'tools', count };
+      if (kind === 'gear' && other) this.elsewhere = { archived: !archived, count: other };
+      else if (count) this.elsewhere = { view: kind === 'gear' ? 'parts' : 'gear', count };
     }
-    if (kind === 'tool') return;
+    if (kind === 'gear') {
+      // Without words, the gear comes by type (untyped last), then by name.
+      if (this.grouped) this.rows.sort((a, b) => compareTypes(a.item, b.item) || a.item.name.localeCompare(b.item.name));
+      return;
+    }
     // "M3" parses as a slot, but only means one when box M exists or the dash was typed.
     if (slot && (this.knownBoxes.has(parseSlot(slot).box) || /-/.test(this.query))) {
       this.slotBanner = { slot, count: (this.slotMap.get(slot) || []).length };
@@ -261,10 +267,10 @@ class App {
   renderList() {
     const list = clear($('results'));
     const terms = parseQuery(this.query).terms;
-    if (this.view === 'tools' && this.archived) {
+    if (this.view === 'gear' && this.archived) {
       list.append(h('div', { class: 'archive-banner' },
-        h('p', null, h('strong', null, 'Archived tools'), 'Broken, lost or sold: kept with their serial number and files.'),
-        h('button', { type: 'button', class: 'button', onclick: () => this.setArchived(false) }, '← Tools in use')));
+        h('p', null, h('strong', null, 'Archived gear'), 'Broken, lost or sold: kept with its serial number and files.'),
+        h('button', { type: 'button', class: 'button', onclick: () => this.setArchived(false) }, '← Gear in use')));
     }
     if (this.slotBanner) {
       const { slot, count } = this.slotBanner;
@@ -281,7 +287,7 @@ class App {
     }
     if (!this.rows.length && this.elsewhere) {
       const { view, archived, count } = this.elsewhere;
-      const here = this.view === 'tools' ? (this.archived ? 'the archive' : 'tools in use') : this.view;
+      const here = this.view === 'gear' ? (this.archived ? 'the archive' : 'gear in use') : this.view;
       list.append(h('div', { class: 'empty-state' }, `No match in ${here}. `,
         view
           ? h('button', { type: 'button', class: 'link-button', onclick: () => this.setView(view) }, `${count} in ${view} →`)
@@ -290,31 +296,34 @@ class App {
       return;
     }
     if (!this.rows.length) {
-      const tools = this.view === 'tools';
-      const anyOfKind = this.items.some((it) => itemKind(it) === (tools ? 'tool' : 'part') && (!tools || isArchived(it) === this.archived));
+      const gear = this.view === 'gear';
+      const anyOfKind = this.items.some((it) => itemKind(it) === (gear ? 'gear' : 'part') && (!gear || isArchived(it) === this.archived));
       let text;
-      if (anyOfKind) text = this.slotBanner ? null : `No match. Try fewer words, a tag (#…)${tools ? ' or a serial number' : ' or a box (@A)'}.`;
-      else if (tools && this.archived) text = 'No archived tool. Archive a tool from its details when it is broken, lost or sold.';
-      else text = `No ${tools ? 'tool' : 'part'} yet. Add one with + Add.`;
+      if (anyOfKind) text = this.slotBanner ? null : `No match. Try fewer words, a tag (#…)${gear ? ', a type or a serial number' : ' or a box (@A)'}.`;
+      else if (gear && this.archived) text = 'No archived gear. Archive an item from its details when it is broken, lost or sold.';
+      else text = gear ? 'No gear yet: tools, a watch, a laptop… Add one with + Add.' : 'No part yet. Add one with + Add.';
       list.append(h('div', { class: 'empty-state' }, text,
-        this.query.trim() && !this.slotBanner && !(tools && this.archived)
+        this.query.trim() && !this.slotBanner && !(gear && this.archived)
           ? [' ', h('button', { type: 'button', class: 'link-button', onclick: () => this.add({ name: this.query.trim() }) }, `Add “${this.query.trim()}”`)]
           : null));
       this.archivedNote(list);
       return;
     }
-    list.append(this.view === 'tools'
-      ? h('div', { class: 'row tool-row thead', attrs: { 'aria-hidden': 'true' } },
-        h('span', { class: 'row-mark' }), h('span', null, 'Tool'), h('span', null, 'Brand · reference'),
+    list.append(this.view === 'gear'
+      ? h('div', { class: 'row gear-row thead', attrs: { 'aria-hidden': 'true' } },
+        h('span', { class: 'row-mark' }), h('span', null, 'Item'), h('span', null, 'Brand · reference'),
         h('span', null, 'Serial no.'), h('span', { class: 'num' }, 'Docs'))
       : h('div', { class: 'row thead', attrs: { 'aria-hidden': 'true' } },
         h('span', { class: 'row-mark' }), h('span', null, 'Slot'), h('span', null, 'Description'),
         h('span', null, 'Tags'), h('span', { class: 'num' }, 'Qty')));
-    let box;
+    let group;
     this.rows.slice(0, MAX_ROWS).forEach((row, i) => {
-      if (this.grouped) {
+      if (this.grouped && this.view === 'gear') {
+        const type = row.item.type || '';
+        if (type !== group) list.append(this.typeHead((group = type)));
+      } else if (this.grouped) {
         const b = parseSlot(row.kind === 'empty' ? row.slot : row.item.slots[0] || '')?.box || '';
-        if (b !== box) list.append(this.boxHead((box = b)));
+        if (b !== group) list.append(this.boxHead((group = b)));
       }
       list.append(this.renderRow(row, i, terms));
     });
@@ -325,14 +334,22 @@ class App {
     list.querySelector('.row.cursor')?.scrollIntoView({ block: 'nearest' });
   }
 
-  /** Under the tools in use: how many are archived, and the way to them. */
+  /** Under the gear in use: how much is archived, and the way to it. */
   archivedNote(list) {
-    if (this.view !== 'tools' || this.archived || this.query.trim()) return;
+    if (this.view !== 'gear' || this.archived || this.query.trim()) return;
     const count = this.items.filter(isArchived).length;
     if (!count) return;
     list.append(h('div', { class: 'list-note' },
-      h('span', null, `${count} archived tool${count === 1 ? '' : 's'} hidden: broken, lost or sold.`),
+      h('span', null, `${count} archived item${count === 1 ? '' : 's'} hidden: broken, lost or sold.`),
       h('button', { type: 'button', class: 'button', onclick: () => this.setArchived(true) }, 'Show archived')));
+  }
+
+  /** "WATCH — 2" above the gear of one type. */
+  typeHead(type) {
+    const count = this.rows.filter((r) => (r.item.type || '') === type).length;
+    return h('div', { class: 'box-head' },
+      h('span', null, type || 'No type'),
+      h('span', { class: 'box-meta' }, String(count)));
   }
 
   /** "BOX A — 24 slots · 15 free" above the parts of a box. */
@@ -360,17 +377,20 @@ class App {
         h('span', { class: 'row-qty num' }, ''));
     }
     const it = row.item;
-    if (itemKind(it) === 'tool') {
+    if (itemKind(it) === 'gear') {
       const ref = [it.brand, it.model].filter(Boolean).join(' ');
       const files = it.attachments?.length || 0;
       return h('div', {
-        class: ['row', 'tool-row', i === this.cursor && 'cursor', this.selected.has(it.id) && 'selected'],
+        class: ['row', 'gear-row', i === this.cursor && 'cursor', this.selected.has(it.id) && 'selected'],
         dataset: { id: it.id },
         onclick,
         ondblclick: () => this.edit(it),
       },
       h('span', { class: 'row-mark' }),
-      h('span', { class: 'row-name-cell' }, highlighted('row-name', it.name, terms),
+      h('span', { class: 'row-name-cell' },
+        // Under a type heading the type goes without saying; in search results it is shown.
+        h('span', { class: 'row-name-line' }, highlighted('row-name', it.name, terms),
+          !this.grouped && it.type ? h('span', { class: 'row-type' }, it.type) : null),
         // Phones show one column: the reference and the documents go under the name.
         h('span', { class: 'row-sub' }, [ref, files ? `${files} doc${files === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ') || '—')),
       h('span', { class: 'row-brand' }, ref || '—'),
@@ -433,15 +453,16 @@ class App {
       h('span', null, [kind, it.tags[0]].filter(Boolean).join(' · ')),
       h('span', { class: ['state', className] }, state));
 
-    if (itemKind(it) === 'tool') {
+    if (itemKind(it) === 'gear') {
       const archived = isArchived(it);
       const ref = [it.brand, it.model].filter(Boolean).join(' ');
       const w = it.warranty_until ? warrantyState(it.warranty_until) : null;
       return h('div', { class: 'preview-body' },
-        kicker('Tool', archived ? '■ archived' : '● in use', archived && 'archived'),
+        kicker(it.type ? capitalize(it.type) : 'Gear', archived ? '■ archived' : '● in use', archived && 'archived'),
         h('h2', { class: 'preview-title' }, it.name),
         ref ? h('p', { class: 'ds-sub' }, ref) : null,
         section('Specification', null, h('dl', { class: 'spec' },
+          pair('Type', it.type ? link(it.type, `type:${it.type.split(' ')[0]}`, 'tag') : none()),
           pair('Brand', it.brand || none()),
           pair('Reference', it.model ? h('span', { class: 'copyable mono' }, it.model) : none()),
           pair('Serial no.', it.serial ? h('span', { class: 'copyable mono serial' }, it.serial) : none(),
@@ -452,15 +473,15 @@ class App {
         // Phones: Edit is in the header and Attach above, so only the rest.
         isMobile()
           ? h('div', { class: 'page-actions' },
-            h('button', { type: 'button', class: 'button wide', onclick: () => this.toggleArchive(it) }, archived ? 'Restore to the tools in use' : 'Archive this tool'),
-            h('button', { type: 'button', class: 'button wide danger-text', onclick: () => this.remove([it]) }, 'Delete tool'))
+            h('button', { type: 'button', class: 'button wide', onclick: () => this.toggleArchive(it) }, archived ? 'Restore to the gear in use' : 'Archive this item'),
+            h('button', { type: 'button', class: 'button wide danger-text', onclick: () => this.remove([it]) }, 'Delete item'))
           : h('div', { class: 'preview-actions' },
             action('e', 'edit', () => this.edit(it)),
             action('f', 'attach', () => this.pickFiles(it)),
             action('A', archived ? 'restore' : 'archive', () => this.toggleArchive(it)),
             action('d', 'delete', () => this.remove([it]), 'danger-text')),
         h('p', { class: 'ds-note' }, archived
-          ? 'Archived: out of the tools list, kept with its serial number and files.'
+          ? 'Archived: out of the gear list, kept with its serial number and files.'
           : 'Broken, lost or sold? Archive it: it leaves the list and keeps its serial number and files.'));
     }
 
@@ -560,7 +581,7 @@ class App {
     const row = this.cursorRow();
     if (!row) return;
     const body = h('div', { class: 'sheet-content' });
-    const back = { parts: '← Parts', tools: this.archived ? '← Archive' : '← Tools', shopping: '← To buy' }[this.view];
+    const back = { parts: '← Parts', gear: this.archived ? '← Archive' : '← Gear', shopping: '← To buy' }[this.view];
     const modal = openModal({
       title: '',
       back,
@@ -596,26 +617,26 @@ class App {
 
     let parts = 0;
     let toBuy = 0;
-    let tools = 0;
+    let gear = 0;
     let archived = 0;
     for (const it of this.items) {
-      if (itemKind(it) === 'tool') {
+      if (itemKind(it) === 'gear') {
         if (isArchived(it)) archived++;
-        else tools++;
+        else gear++;
       } else {
         parts++;
         if (it.to_buy) toBuy++;
       }
     }
-    const title = { parts: 'Parts', tools: this.archived ? 'Archive' : 'Tools', shopping: 'To buy' }[this.view];
+    const title = { parts: 'Parts', gear: this.archived ? 'Archive' : 'Gear', shopping: 'To buy' }[this.view];
     $('view-title').textContent = title;
     $('meta-title').textContent = `Inventory · ${title}`;
     $('meta-info').textContent = {
       parts: `${parts} part${parts === 1 ? '' : 's'} · ${this.boxes.length} box${this.boxes.length === 1 ? '' : 'es'}`,
-      tools: `${tools} in use · ${archived} archived`,
+      gear: `${gear} in use · ${archived} archived`,
       shopping: `${toBuy} to buy`,
     }[this.view];
-    const pool = { parts, tools: this.archived ? archived : tools, shopping: toBuy }[this.view];
+    const pool = { parts, gear: this.archived ? archived : gear, shopping: toBuy }[this.view];
     $('result-count').textContent = `${total}/${pool}`;
     $('search-clear').hidden = !this.query;
     for (const v of VIEWS) $(`tab-${v}`).classList.toggle('active', this.view === v);
@@ -663,8 +684,8 @@ class App {
   /** Shows one item, in its tab; with open, also its details (full screen on phones). */
   focusItem(item, { open = false } = {}) {
     closeAllModals();
-    const view = itemKind(item) === 'tool' ? 'tools' : 'parts';
-    if (view === 'tools' && (this.view !== 'tools' || this.archived !== isArchived(item))) this.setArchived(isArchived(item));
+    const view = itemKind(item) === 'gear' ? 'gear' : 'parts';
+    if (view === 'gear' && (this.view !== 'gear' || this.archived !== isArchived(item))) this.setArchived(isArchived(item));
     else if (this.view !== view && !(this.view === 'shopping' && item.to_buy)) this.setView(view);
     let i = this.rows.findIndex((r) => r.item?.id === item.id);
     if (i < 0) {
@@ -740,7 +761,7 @@ class App {
     const row = this.cursorRow();
     if (!slot && !name && row?.kind === 'empty') slot = row.slot;
     if (!slot && !name && this.slotBanner && !this.slotBanner.count) slot = this.slotBanner.slot;
-    openItemForm(this, { kind: this.view === 'tools' ? 'tool' : 'part', slot, name });
+    openItemForm(this, { kind: this.view === 'gear' ? 'gear' : 'part', slot, name });
   }
 
   edit(item = this.cursorItem()) {
@@ -913,16 +934,16 @@ class App {
     });
   }
 
-  /** Archives a tool (broken, lost, sold: off the list, kept on record), or restores it. */
+  /** Archives gear (broken, lost, sold: off the list, kept on record), or restores it. */
   async toggleArchive(item = this.cursorItem()) {
     if (!item) return;
-    if (itemKind(item) !== 'tool') return toast('Only tools are archived: a part is in stock or on the shopping list.');
+    if (itemKind(item) !== 'gear') return toast('Only gear is archived: a part is in stock or on the shopping list.');
     const archive = !isArchived(item);
     const undo = this.snapshot([item]);
     const updated = await this.run(() => api.items.update(item.id, { ...item, status: archive ? 'archived' : '' }));
     if (!updated) return;
     this.putItem(updated);
-    this.done(archive ? `Archived “${updated.name}”` : `Restored “${updated.name}” to the tools in use`, undo);
+    this.done(archive ? `Archived “${updated.name}”` : `Restored “${updated.name}” to the gear in use`, undo);
   }
 
   copy(text, message) {
@@ -1110,6 +1131,18 @@ class App {
 
 function itemKind(item) {
   return item.kind || 'part';
+}
+
+/** Types in alphabetical order; gear without a type comes last. */
+function compareTypes(a, b) {
+  const x = a.type || '';
+  const y = b.type || '';
+  if (!x !== !y) return x ? -1 : 1;
+  return x.localeCompare(y);
+}
+
+function capitalize(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function isArchived(item) {

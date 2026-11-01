@@ -147,7 +147,7 @@ func TestAttachments(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := New(store, false).Handler()
-	tool, err := store.CreateItem(db.ItemInput{Kind: "tool", Name: "Multimeter", Brand: "Fluke", Model: "117", Serial: "SN-42"})
+	tool, err := store.CreateItem(db.ItemInput{Kind: "gear", Type: "tool", Name: "Multimeter", Brand: "Fluke", Model: "117", Serial: "SN-42"})
 	if err != nil {
 		t.Fatal(err)
 	}

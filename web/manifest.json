@@ -1,7 +1,7 @@
 {
   "name": "Inventory",
   "short_name": "Inventory",
-  "description": "Where every part and tool lives, box by box",
+  "description": "Where every part lives, box by box, and a record of your gear",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#232136",

@@ -57,8 +57,8 @@ export function filesSection(app, item) {
       attrs: { 'aria-label': `Delete ${f.filename}` },
       onclick: () => change(() => api.attachments.remove(f.id), `deleted ${f.filename}`, () => api.attachments.restore(f.id)),
     }, '×')));
-  const empty = item.kind === 'tool'
-    ? 'No invoice yet. Attach it now, so you have it the day the tool breaks.'
+  const empty = item.kind === 'gear'
+    ? 'No invoice yet. Attach it now, so you have it the day it breaks.'
     : 'No datasheet or pinout attached.';
   return h('section', { class: 'ds-section files' },
     h('h3', { class: 'ds-head' }, h('span', null, 'Documents'), h('span', { class: 'aside' }, files.length ? String(files.length) : '')),

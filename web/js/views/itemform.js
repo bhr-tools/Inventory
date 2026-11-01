@@ -1,8 +1,8 @@
 // One form to add an item and to edit it, the same on a computer and on a
 // phone. The name lists look-alike items as it is typed, so a typo does not
 // make a second copy. A part's slot is picked on the map of an existing box
-// (boxes are created in the Boxes view); a tool takes its brand, reference,
-// serial number and warranty end instead.
+// (boxes are created in the Boxes view); gear (a tool, a watch, a laptop…)
+// takes a type, its brand, reference, serial number and warranty end instead.
 
 import { h, isMobile } from '../dom.js';
 import { openModal, topModal } from '../ui/overlay.js';
@@ -59,7 +59,11 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
       h('button', { type: 'button', attrs: { 'aria-label': 'One more' }, onclick: () => step(1) }, '+')),
     h('span', { class: 'field-info' }, 'At 0 the part goes to the shopping list.')));
 
-  // Tool: a record.
+  // Gear: a record. The type is free text; the types already used are offered.
+  const type = text(item?.type, { maxLength: 40, placeholder: 'tool, watch, 3d printer…', attrs: { 'aria-label': 'Type', list: 'form-types', autocapitalize: 'off', enterkeyhint: 'next' } });
+  const usedTypes = countTypes(app.items);
+  const types = h('datalist', { id: 'form-types' }, usedTypes.map((t) => h('option', { value: t })));
+  const typePicks = h('div', { class: 'pick-row' });
   const brand = text(item?.brand, { maxLength: 100, attrs: { 'aria-label': 'Brand', list: 'form-brands', autocapitalize: 'words' } });
   const brands = h('datalist', { id: 'form-brands' },
     [...new Set(app.items.map((it) => it.brand).filter(Boolean))].sort().map((b) => h('option', { value: b })));
@@ -67,12 +71,13 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
   const serial = text(item?.serial, { class: 'input mono', maxLength: 100, attrs: { 'aria-label': 'Serial number', autocapitalize: 'characters' } });
   const warranty = h('input', { type: 'date', class: 'input mono', value: item?.warranty_until || '', attrs: { 'aria-label': 'Warranty until' } });
   const archived = h('input', { type: 'checkbox', checked: item?.status === 'archived' });
-  const toolFields = h('div', { class: 'form-group' },
+  const gearFields = h('div', { class: 'form-group' },
+    field('Type', type, types, typePicks),
     h('div', { class: 'field-grid' }, field('Brand', brand, brands), field('Reference', model)),
     h('div', { class: 'field-grid' }, field('Serial no.', serial), field('Warranty until', warranty)),
     editing
       ? h('label', { class: 'field-check' }, archived, 'Archived: broken, lost or sold, kept on record')
-      : h('span', { class: 'field-info' }, 'No slot and no count for tools. Attach the invoice once it is added.'));
+      : h('span', { class: 'field-info' }, 'No slot and no count for gear. Attach the invoice once it is added.'));
 
   // Both.
   const tagChips = h('div', { class: 'pick-row' });
@@ -88,7 +93,7 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
     kindSeg,
     field('Name', nameInput, lookAlikes),
     partFields,
-    toolFields,
+    gearFields,
     field('Tags', tagChips, tagInput, tagSuggest),
     h('details', { class: 'form-more', open: hasMore },
       h('summary', null, 'Also known as, description, notes'),
@@ -96,7 +101,7 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
       field('Description', description),
       field('Notes', notes)),
     editing
-      ? h('button', { type: 'button', class: 'button wide danger-text', onclick: () => app.remove([item]) }, `Delete ${item.kind === 'tool' ? 'tool' : 'part'}`)
+      ? h('button', { type: 'button', class: 'button wide danger-text', onclick: () => app.remove([item]) }, `Delete ${item.kind === 'gear' ? 'item' : 'part'}`)
       : null,
     h('button', { type: 'submit', hidden: true }));
 
@@ -105,7 +110,7 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
   }
 
   function renderKind() {
-    kindSeg.replaceChildren(...['part', 'tool'].map((k) => h('button', {
+    kindSeg.replaceChildren(...['part', 'gear'].map((k) => h('button', {
       type: 'button',
       class: state.kind === k && 'active',
       attrs: { 'aria-pressed': String(state.kind === k) },
@@ -116,8 +121,8 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
       },
     }, k)));
     partFields.hidden = state.kind !== 'part';
-    toolFields.hidden = state.kind !== 'tool';
-    nameInput.placeholder = state.kind === 'part' ? 'e.g. Condensateur 22pF' : 'e.g. Visseuse à chocs';
+    gearFields.hidden = state.kind !== 'gear';
+    nameInput.placeholder = state.kind === 'part' ? 'e.g. Condensateur 22pF' : 'e.g. Visseuse à chocs, Prusa MK4';
     const t = modal?.el.querySelector('.modal-title');
     if (t) t.textContent = title();
   }
@@ -191,12 +196,29 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
       .map((s) => h('button', { type: 'button', class: 'pick tag-chip suggest', onclick: () => addTag(s.label) }, `+ ${s.label}`)));
   }
 
+  /** The types already used, as one-tap picks (the one typed shows chosen). */
+  function renderTypes() {
+    const typed = type.value.trim().toLowerCase().replace(/\s+/g, ' ');
+    typePicks.replaceChildren(...usedTypes
+      .filter((t) => normalize(t).startsWith(normalize(typed)))
+      .slice(0, 8)
+      .map((t) => h('button', {
+        type: 'button',
+        class: ['pick', 'tag-chip', t === typed ? 'active' : 'suggest'],
+        attrs: { 'aria-pressed': String(t === typed) },
+        onclick: () => {
+          type.value = t === typed ? '' : t;
+          renderTypes();
+        },
+      }, t)));
+  }
+
   /** Look-alikes under the name, and whether the form can be saved. */
   function update() {
     const value = nameInput.value.trim();
     const matches = value ? similarItems(app.index, value).filter((m) => m.item.id !== item?.id).slice(0, 3) : [];
     const exact = matches.find((m) => m.exact);
-    const where = (it) => (it.kind === 'tool' ? 'tool' : it.slots.join(', ') || 'no slot');
+    const where = (it) => (it.kind === 'gear' ? it.type || 'gear' : it.slots.join(', ') || 'no slot');
     const open = (it) => () => {
       modal.close();
       app.focusItem(it, { open: true });
@@ -208,7 +230,7 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
         h('b', null, `${exact.item.name} · ${where(exact.item)}`), '. Open it →')];
     } else if (!editing) {
       lines = matches.map((m) => h('button', { type: 'button', class: 'look-alike', onclick: open(m.item) },
-        'Similar: ', h('b', null, `${m.item.name} · ${where(m.item)}`), m.item.kind === 'tool' ? '' : ' — open it to add to it'));
+        'Similar: ', h('b', null, `${m.item.name} · ${where(m.item)}`), m.item.kind === 'gear' ? '' : ' — open it to add to it'));
     }
     lookAlikes.replaceChildren(...lines);
     modal.action.disabled = !value || Boolean(exact);
@@ -218,21 +240,22 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
     if (modal.action.disabled) return nameInput.value.trim() ? null : nameInput.focus();
     if (tagInput.value.trim()) addTag(tagInput.value);
     error.hidden = true;
-    const tool = state.kind === 'tool';
+    const gear = state.kind === 'gear';
     const payload = {
       kind: state.kind,
       name: nameInput.value,
-      slots: tool ? [] : state.slots,
+      type: gear ? type.value : '',
+      slots: gear ? [] : state.slots,
       tags: state.tags,
       aliases: aliases.value.split(',').map((a) => a.trim()).filter(Boolean),
       description: description.value,
       notes: notes.value,
-      quantity: tool ? 0 : Math.max(0, Math.round(Number(qty.value) || 0)),
-      brand: tool ? brand.value : '',
-      model: tool ? model.value : '',
-      serial: tool ? serial.value : '',
-      warranty_until: tool ? warranty.value : '',
-      status: tool && archived.checked ? 'archived' : '',
+      quantity: gear ? 0 : Math.max(0, Math.round(Number(qty.value) || 0)),
+      brand: gear ? brand.value : '',
+      model: gear ? model.value : '',
+      serial: gear ? serial.value : '',
+      warranty_until: gear ? warranty.value : '',
+      status: gear && archived.checked ? 'archived' : '',
     };
     modal.action.disabled = true;
     try {
@@ -267,8 +290,14 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
   nameInput.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || !isMobile()) return;
     e.preventDefault();
-    if (state.kind === 'tool') brand.focus();
+    if (state.kind === 'gear') type.focus();
     else nameInput.blur();
+  });
+  type.addEventListener('input', renderTypes);
+  type.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || !isMobile()) return;
+    e.preventDefault();
+    brand.focus();
   });
   several.addEventListener('change', () => {
     if (!several.checked) state.slots = state.slots.slice(0, 1);
@@ -314,6 +343,14 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
   renderKind();
   renderSlots();
   renderTags();
+  renderTypes();
   update();
   return modal;
+}
+
+/** The types of the gear, the most used first. */
+function countTypes(items) {
+  const counts = new Map();
+  for (const it of items) if (it.type) counts.set(it.type, (counts.get(it.type) || 0) + 1);
+  return [...counts].sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0])).map(([t]) => t);
 }
