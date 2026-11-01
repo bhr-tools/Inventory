@@ -407,6 +407,33 @@ func TestChangeQuantity(t *testing.T) {
 	}
 }
 
+func TestPrice(t *testing.T) {
+	s := openTest(t)
+	it := mustCreate(t, s, ItemInput{Name: "LM317", Price: intPtr(85)})
+	if it.Price != 85 {
+		t.Fatalf("price = %d", it.Price)
+	}
+	// An update without a price keeps it; 0 clears it.
+	if got, err := s.UpdateItem(it.ID, ItemInput{Name: "LM317"}); err != nil || got.Price != 85 {
+		t.Fatalf("kept: %d %v", got.Price, err)
+	}
+	if got, err := s.UpdateItem(it.ID, ItemInput{Name: "LM317", Price: intPtr(0)}); err != nil || got.Price != 0 {
+		t.Fatalf("cleared: %d %v", got.Price, err)
+	}
+	if _, err := s.CreateItem(ItemInput{Name: "X", Price: intPtr(-1)}); err == nil {
+		t.Error("negative price accepted")
+	}
+	// Deleted and restored, the price comes back.
+	s.UpdateItem(it.ID, ItemInput{Name: "LM317", Price: intPtr(90)})
+	removed, _ := s.DeleteItems([]string{it.ID})
+	if err := s.RestoreItems(removed); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Item(it.ID); got.Price != 90 {
+		t.Errorf("restored price = %d", got.Price)
+	}
+}
+
 func TestGear(t *testing.T) {
 	s := openTest(t)
 	tool := mustCreate(t, s, ItemInput{Kind: KindGear, Type: " Power  Tool ", Name: "Drill", Brand: " Makita ", Model: "DHP482", Serial: "A1 2", WarrantyUntil: "2027-03-31"})

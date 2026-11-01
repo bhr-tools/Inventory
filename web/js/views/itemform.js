@@ -7,7 +7,7 @@
 import { h, isMobile } from '../dom.js';
 import { openModal, topModal } from '../ui/overlay.js';
 import { similarItems } from '../search.js';
-import { normalize } from '../text.js';
+import { normalize, parsePrice } from '../text.js';
 import { parseSlot } from '../slots.js';
 import { api, ApiError } from '../api.js';
 import { tagSuggestions } from '../suggest.js';
@@ -79,7 +79,11 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
       ? h('label', { class: 'field-check' }, archived, 'Archived: broken, lost or sold, kept on record')
       : h('span', { class: 'field-info' }, 'No slot and no count for gear. Attach the invoice once it is added.'));
 
-  // Both.
+  // Both: what it cost, per unit for a part. Shown only in the details.
+  const price = text(item?.price ? (item.price / 100).toFixed(2) : '', { class: 'input mono', placeholder: '€', maxLength: 14, inputMode: 'decimal', attrs: { 'aria-label': 'Price' } });
+  const priceField = field('Price', h('div', { class: 'price-input' }, price, h('span', { class: 'price-unit' }, '€')),
+    h('span', { class: 'field-info' }));
+
   const tagChips = h('div', { class: 'pick-row' });
   const tagInput = text('', { class: 'input mono', placeholder: 'type a tag, then return', attrs: { 'aria-label': 'Tag', autocapitalize: 'off', enterkeyhint: 'done' } });
   const tagSuggest = h('div', { class: 'pick-row' });
@@ -94,6 +98,7 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
     field('Name', nameInput, lookAlikes),
     partFields,
     gearFields,
+    priceField,
     field('Tags', tagChips, tagInput, tagSuggest),
     h('details', { class: 'form-more', open: hasMore },
       h('summary', null, 'Also known as, description, notes'),
@@ -122,6 +127,9 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
     }, k)));
     partFields.hidden = state.kind !== 'part';
     gearFields.hidden = state.kind !== 'gear';
+    const gear = state.kind === 'gear';
+    priceField.querySelector('.field-label').textContent = gear ? 'Purchase price' : 'Unit price';
+    priceField.querySelector('.field-info').textContent = gear ? 'Optional. Only shown in the details.' : 'Optional, for one piece. Only shown in the details.';
     nameInput.placeholder = state.kind === 'part' ? 'e.g. Condensateur 22pF' : 'e.g. Visseuse à chocs, Prusa MK4';
     const t = modal?.el.querySelector('.modal-title');
     if (t) t.textContent = title();
@@ -240,6 +248,12 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
     if (modal.action.disabled) return nameInput.value.trim() ? null : nameInput.focus();
     if (tagInput.value.trim()) addTag(tagInput.value);
     error.hidden = true;
+    const cents = parsePrice(price.value);
+    if (Number.isNaN(cents)) {
+      error.textContent = 'The price is an amount like 12.50';
+      error.hidden = false;
+      return price.focus();
+    }
     const gear = state.kind === 'gear';
     const payload = {
       kind: state.kind,
@@ -251,6 +265,7 @@ export function openItemForm(app, { item = null, kind = 'part', name = '', slot 
       description: description.value,
       notes: notes.value,
       quantity: gear ? 0 : Math.max(0, Math.round(Number(qty.value) || 0)),
+      price: cents,
       brand: gear ? brand.value : '',
       model: gear ? model.value : '',
       serial: gear ? serial.value : '',

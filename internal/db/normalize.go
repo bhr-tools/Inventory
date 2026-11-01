@@ -20,7 +20,8 @@ const (
 	MaxBoxSlots          = 999
 	MaxListLength        = 50 // slots, tags or aliases of one item
 	MaxQuantity          = 1_000_000
-	MaxGearFieldLength   = 100 // brand, model, serial
+	MaxPrice             = 100_000_000 // cents: 1 000 000.00
+	MaxGearFieldLength   = 100         // brand, model, serial
 	MaxTypeLength        = 40
 )
 

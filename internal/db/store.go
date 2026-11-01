@@ -190,6 +190,9 @@ var migrations = []string{
 	// type "tool".
 	`ALTER TABLE items ADD COLUMN type TEXT NOT NULL DEFAULT '';
 	UPDATE items SET kind = 'gear', type = 'tool' WHERE kind = 'tool';`,
+
+	// 7: an optional purchase price in cents (0: not set), per unit for a part.
+	`ALTER TABLE items ADD COLUMN price INTEGER NOT NULL DEFAULT 0;`,
 }
 
 func (s *Store) migrate() error {

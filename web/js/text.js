@@ -64,3 +64,21 @@ export function similarity(a, b) {
   for (const t of ta) if (tb.has(t)) common++;
   return (2 * common) / (ta.size + tb.size);
 }
+
+const money = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'EUR' });
+
+/** A price in cents as "12,50 €" (in the browser's language). */
+export function formatPrice(cents) {
+  return money.format(cents / 100);
+}
+
+/**
+ * Reads "12.50", "12,5", "1 299" or "12 €" as cents; empty is 0 (no price),
+ * and anything else NaN.
+ */
+export function parsePrice(text) {
+  const t = String(text ?? '').replace(/[\s\u00a0\u202f€]/g, '').replace(',', '.');
+  if (!t) return 0;
+  if (!/^\d+(\.\d{0,2})?$/.test(t)) return NaN;
+  return Math.round(Number(t) * 100);
+}

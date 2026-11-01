@@ -20,10 +20,10 @@ func (s *Store) ImportItems(inputs []ItemInput) (created, merged int, err error)
 				}
 				id = newID()
 				t := now()
-				if _, err := tx.Exec(`INSERT INTO items (id, kind, name, name_key, description, notes, quantity,
+				if _, err := tx.Exec(`INSERT INTO items (id, kind, name, name_key, description, notes, quantity, price,
 						type, brand, model, serial, warranty_until, status, created_at, updated_at)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-					id, c.kind, c.name, c.key, c.description, c.notes, c.quantityOr(0),
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					id, c.kind, c.name, c.key, c.description, c.notes, c.quantityOr(0), c.priceOr(0),
 					c.typ, c.brand, c.model, c.serial, c.warranty, c.status, t, t); err != nil {
 					return err
 				}
@@ -42,6 +42,11 @@ func (s *Store) ImportItems(inputs []ItemInput) (created, merged int, err error)
 			}
 			// A file without a quantity keeps the current one.
 			quantity := c.quantityOr(existing.Quantity)
+			// A price in the file replaces the one recorded; none keeps it.
+			price := existing.Price
+			if c.price != nil && *c.price > 0 {
+				price = *c.price
+			}
 			m, err := ItemInput{
 				Kind:          existing.Kind,
 				Type:          firstNonEmpty(c.typ, existing.Type),
@@ -64,9 +69,9 @@ func (s *Store) ImportItems(inputs []ItemInput) (created, merged int, err error)
 			if err != nil {
 				return invalid("%q: %s", in.Name, err.Error())
 			}
-			if _, err := tx.Exec(`UPDATE items SET description = ?, notes = ?, quantity = ?, to_buy = ?,
+			if _, err := tx.Exec(`UPDATE items SET description = ?, notes = ?, quantity = ?, to_buy = ?, price = ?,
 					type = ?, brand = ?, model = ?, serial = ?, warranty_until = ?, status = ?, updated_at = ? WHERE id = ?`,
-				m.description, m.notes, quantity, shoppingFlag(existing.Quantity, quantity, existing.ToBuy) && m.kind == KindPart,
+				m.description, m.notes, quantity, shoppingFlag(existing.Quantity, quantity, existing.ToBuy) && m.kind == KindPart, price,
 				m.typ, m.brand, m.model, m.serial, m.warranty, m.status, now(), id); err != nil {
 				return err
 			}

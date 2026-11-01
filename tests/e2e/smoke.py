@@ -147,9 +147,18 @@ def desktop(browser):
     form.locator(".map-box", has_text="Box C").click()
     form.locator('.map-cell[aria-label^="C-4:"]').click()
     expect(form.locator(".chip-slot")).to_have_count(2)
+    # A unit price, typed with a comma; shown in the details only, with the stock's worth.
+    form.locator('input[aria-label="Price"]').fill("abc")
+    form.locator(".modal-action").click()
+    expect(form.locator(".form-error")).to_contain_text("amount")
+    form.locator('input[aria-label="Price"]').fill("3,5")
     form.locator(".modal-action").click()
     expect(page.locator(".toast")).to_contain_text("Saved “ESP32-WROOM”")
     expect(page.locator(".preview .ds-sub")).to_contain_text("B-2, C-4")
+    expect(page.locator(".preview .spec")).to_contain_text("Unit price")
+    expect(page.locator(".preview .spec")).to_contain_text("17.50")
+    expect(page.locator("#results")).not_to_contain_text("3.50")
+    shot(page, "06a-price")
 
     type_search(page, "multi")
     expect(rows(page)).to_have_count(1)

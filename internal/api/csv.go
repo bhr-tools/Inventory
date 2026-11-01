@@ -19,9 +19,10 @@ import (
 // An empty quantity is 0 for a new item and keeps the count of an existing one.
 // kind is part or gear; gear fills type, brand, model, serial, warranty_until
 // (YYYY-MM-DD) and status (archived or empty). From older exports, the kind
-// tool reads as gear of type tool, and broken and lost as archived. Attachments are not in the
+// tool reads as gear of type tool, and broken and lost as archived. price is
+// the purchase price (per unit for a part), like 12.50 or 12,50; empty: none. Attachments are not in the
 // file: the server backups hold them.
-var csvHeader = []string{"name", "kind", "slots", "tags", "aliases", "quantity", "type", "brand", "model", "serial", "warranty_until", "status", "description", "notes"}
+var csvHeader = []string{"name", "kind", "slots", "tags", "aliases", "quantity", "price", "type", "brand", "model", "serial", "warranty_until", "status", "description", "notes"}
 
 func (a *API) exportCSV(w http.ResponseWriter, r *http.Request) {
 	items, err := a.store.Items()
@@ -34,7 +35,7 @@ func (a *API) exportCSV(w http.ResponseWriter, r *http.Request) {
 	_ = out.Write(csvHeader)
 	for _, it := range items {
 		_ = out.Write([]string{it.Name, it.Kind, strings.Join(it.Slots, " "), strings.Join(it.Tags, " "),
-			strings.Join(it.Aliases, "; "), strconv.Itoa(it.Quantity), it.Type, it.Brand, it.Model, it.Serial,
+			strings.Join(it.Aliases, "; "), strconv.Itoa(it.Quantity), formatPrice(it.Price), it.Type, it.Brand, it.Model, it.Serial,
 			it.WarrantyUntil, it.Status, it.Description, it.Notes})
 	}
 	out.Flush()
@@ -122,8 +123,17 @@ func parseCSV(src io.Reader) ([]db.ItemInput, error) {
 			}
 			quantity = &n
 		}
+		var price *int
+		if p := field("price"); p != "" {
+			cents, err := parsePrice(p)
+			if err != nil {
+				return nil, fmt.Errorf("Line %d: the price %q is not an amount like 12.50", line, p)
+			}
+			price = &cents
+		}
 		inputs = append(inputs, db.ItemInput{
 			Kind:          field("kind"),
+			Price:         price,
 			Type:          field("type"),
 			Brand:         field("brand"),
 			Model:         field("model"),
@@ -140,4 +150,32 @@ func parseCSV(src io.Reader) ([]db.ItemInput, error) {
 		})
 	}
 	return inputs, nil
+}
+
+// formatPrice writes cents as "12.50", or nothing when no price is set.
+func formatPrice(cents int) string {
+	if cents == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d.%02d", cents/100, cents%100)
+}
+
+// parsePrice reads "12.50", "12,5", "12" or "12.50 €" as cents.
+func parsePrice(text string) (int, error) {
+	text = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(text), "€"))
+	text = strings.ReplaceAll(strings.ReplaceAll(text, " ", ""), ",", ".")
+	units, frac, _ := strings.Cut(text, ".")
+	if len(frac) > 2 {
+		return 0, errors.New("more than 2 decimals")
+	}
+	frac = (frac + "00")[:2]
+	whole, err := strconv.Atoi(units)
+	if err != nil || whole < 0 {
+		return 0, errors.New("not an amount")
+	}
+	cents, err := strconv.Atoi(frac)
+	if err != nil || strings.HasPrefix(frac, "-") {
+		return 0, errors.New("not an amount")
+	}
+	return whole*100 + cents, nil
 }

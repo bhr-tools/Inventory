@@ -7,6 +7,7 @@ import { openModal, openMenu, closeAllModals, topModal, toast } from './ui/overl
 import { parseQuery, indexItem, search, highlight } from './search.js';
 import { parseSlot, slotName, compareSlots } from './slots.js';
 import { slotSummary } from './suggest.js';
+import { formatPrice } from './text.js';
 import { initKeys } from './keys.js';
 import { openSwap, openTagDialog, openQuantityDialog } from './views/dialogs.js';
 import { openGrid } from './views/grid.js';
@@ -468,6 +469,7 @@ class App {
           pair('Serial no.', it.serial ? h('span', { class: 'copyable mono serial' }, it.serial) : none(),
             it.serial ? h('button', { type: 'button', class: 'button small', onclick: () => this.copy(it.serial, 'Serial number copied') }, 'Copy') : null),
           pair('Warranty', w ? [h('span', { class: 'mono' }, it.warranty_until), h('span', { class: ['warranty', w.state] }, w.text)] : none()),
+          it.price ? pair('Purchase price', h('span', { class: 'mono' }, formatPrice(it.price))) : null,
           common)),
         filesSection(this, it),
         // Phones: Edit is in the header and Attach above, so only the rest.
@@ -500,6 +502,10 @@ class App {
       section('Specification', null, h('dl', { class: 'spec' },
         pair('Slot', it.slots.length ? it.slots.map((sl) => link(sl, sl, 'slot')) : none(),
           h('button', { type: 'button', class: 'button small', onclick: () => this.moveTargets([it]) }, 'Move')),
+        it.price
+          ? pair('Unit price', [h('span', { class: 'mono' }, formatPrice(it.price)),
+            it.quantity > 1 ? h('span', { class: 'muted mono' }, ` · ${formatPrice(it.price * it.quantity)} for ${it.quantity}`) : null])
+          : null,
         common)),
       filesSection(this, it),
       // Phones: Edit is in the header, Move by the slot (tap a used slot to swap).

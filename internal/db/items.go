@@ -35,6 +35,7 @@ type Item struct {
 	Description   string       `json:"description"`
 	Notes         string       `json:"notes"`
 	Quantity      int          `json:"quantity"`
+	Price         int          `json:"price"`  // purchase price in cents, per unit for a part; 0: not set
 	ToBuy         bool         `json:"to_buy"` // on the shopping list: its quantity dropped to 0
 	Slots         []string     `json:"slots"`
 	Tags          []string     `json:"tags"`
@@ -57,6 +58,7 @@ type ItemInput struct {
 	Description   string   `json:"description"`
 	Notes         string   `json:"notes"`
 	Quantity      *int     `json:"quantity"` // omitted: 0 for a new item, unchanged otherwise
+	Price         *int     `json:"price"`    // cents; omitted: none for a new item, unchanged otherwise
 	Slots         []string `json:"slots"`
 	Tags          []string `json:"tags"`
 	Aliases       []string `json:"aliases"`
@@ -83,7 +85,7 @@ type cleanItem struct {
 	kind, name, key, description, notes string
 	typ, brand, model, serial, warranty string
 	status                              string
-	quantity                            *int
+	quantity, price                     *int
 	slots                               []Slot
 	tags, aliases                       []string
 }
@@ -150,6 +152,13 @@ func (in ItemInput) clean() (cleanItem, error) {
 		q := *in.Quantity
 		c.quantity = &q
 	}
+	if in.Price != nil {
+		if *in.Price < 0 || *in.Price > MaxPrice {
+			return c, invalid("The price goes from 0 to %d", MaxPrice/100)
+		}
+		p := *in.Price
+		c.price = &p
+	}
 	var err error
 	if c.slots, err = parseSlots(in.Slots); err != nil {
 		return c, err
@@ -194,14 +203,14 @@ func (s *Store) loadItems(q querier, id string) ([]Item, error) {
 	byID := map[string]*Item{}
 	var order []*Item
 
-	rows, err := q.Query(`SELECT id, kind, name, description, notes, COALESCE(quantity, 0), to_buy,
+	rows, err := q.Query(`SELECT id, kind, name, description, notes, COALESCE(quantity, 0), to_buy, price,
 		type, brand, model, serial, warranty_until, status, created_at, updated_at FROM items`+itemFilter, args...)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		it := &Item{Slots: []string{}, Tags: []string{}, Aliases: []string{}, Attachments: []Attachment{}}
-		if err := rows.Scan(&it.ID, &it.Kind, &it.Name, &it.Description, &it.Notes, &it.Quantity, &it.ToBuy,
+		if err := rows.Scan(&it.ID, &it.Kind, &it.Name, &it.Description, &it.Notes, &it.Quantity, &it.ToBuy, &it.Price,
 			&it.Type, &it.Brand, &it.Model, &it.Serial, &it.WarrantyUntil, &it.Status, &it.CreatedAt, &it.UpdatedAt); err != nil {
 			rows.Close()
 			return nil, err
@@ -321,10 +330,10 @@ func (s *Store) CreateItem(in ItemInput) (Item, error) {
 			return err
 		}
 		t := now()
-		if _, err := tx.Exec(`INSERT INTO items (id, kind, name, name_key, description, notes, quantity,
+		if _, err := tx.Exec(`INSERT INTO items (id, kind, name, name_key, description, notes, quantity, price,
 				type, brand, model, serial, warranty_until, status, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			id, c.kind, c.name, c.key, c.description, c.notes, c.quantityOr(0),
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, c.kind, c.name, c.key, c.description, c.notes, c.quantityOr(0), c.priceOr(0),
 			c.typ, c.brand, c.model, c.serial, c.warranty, c.status, t, t); err != nil {
 			return err
 		}
@@ -356,9 +365,9 @@ func (s *Store) UpdateItem(id string, in ItemInput) (Item, error) {
 		q := c.quantityOr(old)
 		toBuy = shoppingFlag(old, q, toBuy) && c.kind == KindPart
 		if _, err := tx.Exec(`UPDATE items SET kind = ?, name = ?, name_key = ?, description = ?, notes = ?, quantity = ?, to_buy = ?,
-				type = ?, brand = ?, model = ?, serial = ?, warranty_until = ?, status = ?, updated_at = ? WHERE id = ?`,
+				price = COALESCE(?, price), type = ?, brand = ?, model = ?, serial = ?, warranty_until = ?, status = ?, updated_at = ? WHERE id = ?`,
 			c.kind, c.name, c.key, c.description, c.notes, q, toBuy,
-			c.typ, c.brand, c.model, c.serial, c.warranty, c.status, now(), id); err != nil {
+			c.price, c.typ, c.brand, c.model, c.serial, c.warranty, c.status, now(), id); err != nil {
 			return err
 		}
 		return writeLists(tx, id, c)
@@ -394,6 +403,13 @@ func (c *cleanItem) forKind(kind string) error {
 		return invalid("Only gear has a type")
 	}
 	return nil
+}
+
+func (c cleanItem) priceOr(fallback int) int {
+	if c.price == nil {
+		return fallback
+	}
+	return *c.price
 }
 
 func (c cleanItem) quantityOr(fallback int) int {
@@ -483,7 +499,7 @@ func (s *Store) DeleteItems(ids []string) ([]Item, error) {
 func (s *Store) RestoreItems(items []Item) error {
 	return s.tx(func(tx *sql.Tx) error {
 		for _, it := range items {
-			c, err := ItemInput{Kind: it.Kind, Name: it.Name, Description: it.Description, Notes: it.Notes, Quantity: &it.Quantity,
+			c, err := ItemInput{Kind: it.Kind, Name: it.Name, Description: it.Description, Notes: it.Notes, Quantity: &it.Quantity, Price: &it.Price,
 				Slots: it.Slots, Tags: it.Tags, Aliases: it.Aliases, Type: it.Type, Brand: it.Brand, Model: it.Model, Serial: it.Serial,
 				WarrantyUntil: it.WarrantyUntil, Status: it.Status}.clean()
 			if err != nil {
@@ -502,14 +518,14 @@ func (s *Store) RestoreItems(items []Item) error {
 			if created == "" {
 				created = now()
 			}
-			if _, err := tx.Exec(`INSERT INTO items (id, kind, name, name_key, description, notes, quantity, to_buy,
+			if _, err := tx.Exec(`INSERT INTO items (id, kind, name, name_key, description, notes, quantity, price, to_buy,
 					type, brand, model, serial, warranty_until, status, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, name = excluded.name, name_key = excluded.name_key,
-					description = excluded.description, notes = excluded.notes, quantity = excluded.quantity,
+					description = excluded.description, notes = excluded.notes, quantity = excluded.quantity, price = excluded.price,
 					to_buy = excluded.to_buy, type = excluded.type, brand = excluded.brand, model = excluded.model, serial = excluded.serial,
 					warranty_until = excluded.warranty_until, status = excluded.status, updated_at = excluded.updated_at`,
-				it.ID, c.kind, c.name, c.key, c.description, c.notes, c.quantityOr(0), it.ToBuy && c.quantityOr(0) == 0 && c.kind == KindPart,
+				it.ID, c.kind, c.name, c.key, c.description, c.notes, c.quantityOr(0), c.priceOr(0), it.ToBuy && c.quantityOr(0) == 0 && c.kind == KindPart,
 				c.typ, c.brand, c.model, c.serial, c.warranty, c.status, created, now()); err != nil {
 				return err
 			}

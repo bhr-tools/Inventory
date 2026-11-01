@@ -2,7 +2,7 @@
 // Run: node --test tests/js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalize, editDistance, words } from '../../web/js/text.js';
+import { normalize, editDistance, words, parsePrice } from '../../web/js/text.js';
 import { parseSlot, canonicalSlot, compareSlots } from '../../web/js/slots.js';
 import { parseQuery, indexItem, search, similarItems, highlight, hasTag } from '../../web/js/search.js';
 
@@ -134,4 +134,15 @@ test('gear: type, brand, reference, serial, files and filters', () => {
   assert.deepEqual(find('is:archived'), ['Multimètre']);
   assert.deepEqual(find('is:warranty'), ['Perceuse visseuse']);    // Fluke's ended in 2024
   assert.deepEqual(find('has:file'), ['Perceuse visseuse']);
+});
+
+test('prices are read as cents, with a dot or a comma', () => {
+  assert.equal(parsePrice(''), 0);
+  assert.equal(parsePrice('12.50'), 1250);
+  assert.equal(parsePrice('12,5'), 1250);
+  assert.equal(parsePrice('0,35 €'), 35);
+  assert.equal(parsePrice('1 299'), 129900);
+  assert.ok(Number.isNaN(parsePrice('abc')));
+  assert.ok(Number.isNaN(parsePrice('1.234')));
+  assert.ok(Number.isNaN(parsePrice('-3')));
 });

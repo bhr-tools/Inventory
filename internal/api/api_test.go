@@ -80,7 +80,7 @@ func TestItemLifecycle(t *testing.T) {
 
 func TestCSVRoundTrip(t *testing.T) {
 	h := newTestAPI(t)
-	call(t, h, "POST", "/api/items", `{"name":"Scratch","slots":["C-3"],"tags":["fixing"],"aliases":["velcro","hook and loop"],"notes":"line 1\nline 2","quantity":0}`)
+	call(t, h, "POST", "/api/items", `{"name":"Scratch","slots":["C-3"],"tags":["fixing"],"aliases":["velcro","hook and loop"],"notes":"line 1\nline 2","quantity":0,"price":1250}`)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/api/export", nil))
 	exported := rec.Body.String()
@@ -98,8 +98,24 @@ func TestCSVRoundTrip(t *testing.T) {
 	}
 	_, inv := call(t, other, "GET", "/api/inventory", "")
 	it := inv["items"].([]any)[0].(map[string]any)
-	if it["notes"] != "line 1\nline 2" || len(it["aliases"].([]any)) != 2 || it["quantity"] != float64(0) {
+	if it["notes"] != "line 1\nline 2" || len(it["aliases"].([]any)) != 2 || it["quantity"] != float64(0) || it["price"] != float64(1250) {
 		t.Fatalf("imported %v", it)
+	}
+}
+
+func TestParsePrice(t *testing.T) {
+	for text, want := range map[string]int{"12.50": 1250, "12,5": 1250, "12": 1200, "0.35 €": 35, "1 299,00": 129900} {
+		if got, err := parsePrice(text); err != nil || got != want {
+			t.Errorf("parsePrice(%q) = %d, %v; want %d", text, got, err, want)
+		}
+	}
+	for _, text := range []string{"abc", "1.234", "-3", "1.-5"} {
+		if _, err := parsePrice(text); err == nil {
+			t.Errorf("parsePrice(%q) accepted", text)
+		}
+	}
+	if formatPrice(1250) != "12.50" || formatPrice(5) != "0.05" || formatPrice(0) != "" {
+		t.Error("formatPrice")
 	}
 }
 

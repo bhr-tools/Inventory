@@ -75,6 +75,9 @@ page) open the same form, on a computer and on a phone:
   form only offers boxes that exist.
 - **Quantity** with − / +, **tags** with completion from the existing ones,
   and, folded below, other names, a description and notes.
+- **Price** (optional): what one piece of a part cost, or what a piece of gear
+  cost. It is only shown in the details, with the worth of the stock for a
+  part (`€3.50 · €17.50 for 5`), and goes in the CSV `price` column.
 - **Gear** takes a type, a brand, a reference, a serial number and a warranty
   end instead of a slot and a count, and can be archived from the same form.
 
